@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Force Kokoro backend
-os.environ["WVOID_TTS_BACKEND"] = "kokoro"
+os.environ["WRIT_TTS_BACKEND"] = "kokoro"
 
 from helpers import log, get_time_of_day, preprocess_for_tts, run_claude
 from tts_engine import render_speech
@@ -55,7 +55,7 @@ LONG_TYPES = {
 
 # Prompts for each type
 PROMPTS = {
-    "station_id": """Write a 15-30 word station ID for WVOID-FM.
+    "station_id": """Write a 15-30 word station ID for WRIT-FM.
 Be creative - reference the frequency between frequencies, the liminal hours,
 the space where radio waves meet dreams. Brief but evocative.""",
 

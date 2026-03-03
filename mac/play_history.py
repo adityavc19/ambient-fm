@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Play History Tracker
+WRIT-FM Play History Tracker
 
 Tracks all played tracks to prevent repeats and enable analytics.
 Uses SQLite for persistent storage.
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 # Default database location
-DEFAULT_DB_PATH = Path.home() / ".wvoid" / "history.db"
+DEFAULT_DB_PATH = Path.home() / ".writ" / "history.db"
 
 
 class PlayHistory:

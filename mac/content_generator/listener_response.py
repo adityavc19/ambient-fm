@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate personalized listener response segments for WVOID-FM.
+Generate personalized listener response segments for WRIT-FM.
 
 Usage:
     uv run python listener_response.py "Go DJ-Claude, hi from the Netherlands!"
@@ -57,7 +57,7 @@ LISTENER MESSAGE: "{message}"
 Write a 30-50 word response to this listener.
 Acknowledge them specifically - their location if mentioned, the sentiment they shared.
 This is late night radio - someone reached out from the void. That matters.
-Keep the WVOID mystique but let warmth through."""
+Keep the WRIT mystique but let warmth through."""
 
     script = run_claude(prompt, timeout=60, min_length=20)
     if not script:

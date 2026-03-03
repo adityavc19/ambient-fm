@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Gapless Streamer (Mac Edition)
+WRIT-FM Gapless Streamer (Talk-First Edition)
 
-Streams directly to Icecast from Mac with zero gaps between tracks.
-Uses a single ffmpeg encoder fed by continuous PCM from decoded tracks.
-Features intelligent playlist curation based on time of day and energy flow.
+Streams talk segments with music bumpers to Icecast.
+Uses a single ffmpeg encoder fed by continuous PCM from decoded audio.
+
+Flow: talk segment -> music bumper (60-120s) -> talk segment -> ...
+Falls back to continuous music if no talk segments are available.
 """
 
 import subprocess
@@ -18,7 +20,7 @@ import time
 import urllib.request
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Import play history tracker
 try:
@@ -36,40 +38,23 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Directories
-DEFAULT_MUSIC_DIR = PROJECT_ROOT / "output" / "music"
+TALK_SEGMENTS_DIR = PROJECT_ROOT / "output" / "talk_segments"
+AI_BUMPERS_DIR = PROJECT_ROOT / "output" / "music_bumpers"
+
+# Legacy segments (fallback for old period-based segments)
 DEFAULT_SEGMENTS_DIR = PROJECT_ROOT / "output" / "segments"
-ARCHIVE_MUSIC_DIR = Path(
-    os.environ.get("WVOID_ARCHIVE_MUSIC_DIR", "/Volumes/Archive/01_COLD_ARCHIVE/Media/Music")
-).expanduser()
+SEGMENTS_DIR = Path(os.environ.get("WRIT_SEGMENTS_DIR", str(DEFAULT_SEGMENTS_DIR))).expanduser()
 
-env_music_dirs = os.environ.get("WVOID_MUSIC_DIRS")
-if env_music_dirs:
-    MUSIC_DIRS = [Path(p).expanduser() for p in env_music_dirs.split(os.pathsep) if p]
-else:
-    MUSIC_DIRS = [DEFAULT_MUSIC_DIR]
-    if ARCHIVE_MUSIC_DIR and ARCHIVE_MUSIC_DIR.exists():
-        MUSIC_DIRS.append(ARCHIVE_MUSIC_DIR)
-
-SEGMENTS_DIR = Path(os.environ.get("WVOID_SEGMENTS_DIR", str(DEFAULT_SEGMENTS_DIR))).expanduser()
-
-# Podcast directory (longer-form audio content played at scheduled times)
-DEFAULT_PODCASTS_DIR = PROJECT_ROOT / "output" / "podcasts"
-PODCASTS_DIR = Path(os.environ.get("WVOID_PODCASTS_DIR", str(DEFAULT_PODCASTS_DIR))).expanduser()
-
-# Podcast schedule: hours when podcasts should play (24h format)
-# Plays at 12, 3, 6, 9 - both AM and PM
-PODCAST_HOURS = {0, 3, 6, 9, 12, 15, 18, 21}
-
-# Weekly schedule (optional)
+# Weekly schedule
 DEFAULT_SCHEDULE_PATH = PROJECT_ROOT / "config" / "schedule.yaml"
-SCHEDULE_PATH = Path(os.environ.get("WVOID_SCHEDULE_PATH", str(DEFAULT_SCHEDULE_PATH))).expanduser()
+SCHEDULE_PATH = Path(os.environ.get("WRIT_SCHEDULE_PATH", str(DEFAULT_SCHEDULE_PATH))).expanduser()
 
-# Icecast config (local by default; override via env)
+# Icecast config
 ICECAST_HOST = os.environ.get("ICECAST_HOST", "localhost")
 ICECAST_PORT = int(os.environ.get("ICECAST_PORT", "8000"))
 ICECAST_MOUNT = os.environ.get("ICECAST_MOUNT", "/stream")
 ICECAST_USER = os.environ.get("ICECAST_USER", "source")
-ICECAST_PASS = os.environ.get("ICECAST_PASS", "wvoid_source_2024")
+ICECAST_PASS = os.environ.get("ICECAST_PASS", "writ_source_2024")
 ICECAST_URL = f"icecast://{ICECAST_USER}:{ICECAST_PASS}@{ICECAST_HOST}:{ICECAST_PORT}{ICECAST_MOUNT}"
 ICECAST_STATUS_URL = os.environ.get(
     "ICECAST_STATUS_URL",
@@ -84,26 +69,26 @@ running = True
 encoder_proc = None
 skip_current = False
 force_segment = False
-force_podcast = False  # Play a podcast next
-last_podcast_slot: str | None = None  # Track which slot we last played a podcast (YYYYMMDDHH)
 current_track_info: dict = {
     "track": None,
     "type": None,
-    "vibe": None,
-    "time_period": None,
+    "host": None,
+    "segment_type": None,
+    "show_id": None,
+    "show": None,
     "listeners": 0,
 }
 
 # Command file
 COMMAND_FILE = Path(
-    os.environ.get("WVOID_COMMAND_FILE", str(PROJECT_ROOT / "command.txt"))
+    os.environ.get("WRIT_COMMAND_FILE", str(PROJECT_ROOT / "command.txt"))
 ).expanduser()
 
-# Now playing JSON (local + optional public path)
+# Now playing JSON
 DEFAULT_NOW_PLAYING = PROJECT_ROOT / "output" / "now_playing.json"
 NOW_PLAYING_PATHS = [DEFAULT_NOW_PLAYING]
 
-env_now_playing = os.environ.get("WVOID_NOW_PLAYING_PATHS")
+env_now_playing = os.environ.get("WRIT_NOW_PLAYING_PATHS")
 if env_now_playing:
     NOW_PLAYING_PATHS = [
         Path(p).expanduser() for p in env_now_playing.split(os.pathsep) if p
@@ -119,270 +104,52 @@ NOW_PLAYING_PATHS = list(dict.fromkeys(NOW_PLAYING_PATHS))
 
 
 # =============================================================================
-# MUSIC CLASSIFICATION - Maps artists/keywords to vibes and energy levels
+# PROGRAM CONTEXT
 # =============================================================================
-
-@dataclass
-class TrackMood:
-    energy: float  # 0.0 (ambient/quiet) to 1.0 (high energy/danceable)
-    warmth: float  # 0.0 (cold/electronic) to 1.0 (warm/organic)
-    vibe: str      # Category for grouping
-
 
 @dataclass
 class ProgramContext:
     show_id: str
     show_name: str
     show_description: str
-    music_profile: dict
-    segment_after_tracks: int
-    podcasts_enabled: bool
-    podcast_hours: set[int]
+    host: str
+    topic_focus: str
+    segment_types: list[str]
+    bumper_style: str
+    voices: dict[str, str] = field(default_factory=dict)
 
-# Time periods with their ideal characteristics
-TIME_PROFILES = {
-    "late_night": {  # 00:00-05:59
-        "hours": range(0, 6),
-        "energy_range": (0.0, 0.4),
-        "prefer_warmth": 0.7,
-        "vibes": ["ambient", "jazz", "downtempo", "classical", "soul_slow", "dub"],
-        "description": "The liminal hours. Slow, contemplative, intimate.",
-    },
-    "early_morning": {  # 06:00-09:59
-        "hours": range(6, 10),
-        "energy_range": (0.2, 0.5),
-        "prefer_warmth": 0.6,
-        "vibes": ["jazz", "classical", "bossa", "folk", "ambient", "soul_slow"],
-        "description": "Waking gently. Warm coffee sounds.",
-    },
-    "morning": {  # 10:00-13:59
-        "hours": range(10, 14),
-        "energy_range": (0.4, 0.7),
-        "prefer_warmth": 0.5,
-        "vibes": ["soul", "funk", "indie", "world", "jazz", "hiphop_chill"],
-        "description": "Building momentum. Grooving into the day.",
-    },
-    "early_afternoon": {  # 14:00-14:59 - Talk heavy hour
-        "hours": range(14, 15),
-        "energy_range": (0.4, 0.6),
-        "prefer_warmth": 0.5,
-        "vibes": ["jazz", "soul", "indie", "world", "downtempo"],
-        "description": "The talk hour. More segments, slower pace.",
-    },
-    "afternoon": {  # 15:00-17:59
-        "hours": range(15, 18),
-        "energy_range": (0.5, 0.8),
-        "prefer_warmth": 0.4,
-        "vibes": ["funk", "disco", "hiphop", "indie", "electronic", "world", "rock"],
-        "description": "Peak hours. Full energy, dancing allowed.",
-    },
-    "evening": {  # 18:00-20:59
-        "hours": range(18, 21),
-        "energy_range": (0.4, 0.7),
-        "prefer_warmth": 0.6,
-        "vibes": ["soul", "disco", "funk", "rnb", "indie", "world"],
-        "description": "Sunset vibes. Transitioning down with style.",
-    },
-    "night": {  # 21:00-23:59
-        "hours": range(21, 24),
-        "energy_range": (0.2, 0.5),
-        "prefer_warmth": 0.7,
-        "vibes": ["downtempo", "jazz", "soul_slow", "electronic_chill", "dub", "ambient"],
-        "description": "Night falling. Getting contemplative.",
-    },
-}
 
-# Artist/keyword to mood mapping
-MOOD_SIGNATURES = {
-    # Ambient/Chill - very low energy, variable warmth
-    "ambient": {"energy": 0.15, "warmth": 0.5, "vibe": "ambient"},
-    "brian eno": {"energy": 0.1, "warmth": 0.6, "vibe": "ambient"},
-    "aphex twin": {"energy": 0.3, "warmth": 0.2, "vibe": "electronic"},
-    "boards of canada": {"energy": 0.25, "warmth": 0.7, "vibe": "ambient"},
-    "burial": {"energy": 0.35, "warmth": 0.3, "vibe": "electronic"},
-    "jon hopkins": {"energy": 0.4, "warmth": 0.4, "vibe": "electronic"},
-    "tycho": {"energy": 0.3, "warmth": 0.6, "vibe": "ambient"},
-    "bonobo": {"energy": 0.4, "warmth": 0.6, "vibe": "downtempo"},
+def get_program_context(station_schedule=None) -> ProgramContext:
+    """Resolve the current show/program from the schedule."""
+    if station_schedule is not None:
+        resolved = station_schedule.resolve()
+        return ProgramContext(
+            show_id=resolved.show_id,
+            show_name=resolved.name,
+            show_description=resolved.description,
+            host=resolved.host,
+            topic_focus=resolved.topic_focus,
+            segment_types=resolved.segment_types,
+            bumper_style=resolved.bumper_style,
+            voices=dict(resolved.voices),
+        )
 
-    # Jazz - moderate energy, very warm
-    "jazz": {"energy": 0.35, "warmth": 0.9, "vibe": "jazz"},
-    "coltrane": {"energy": 0.5, "warmth": 0.9, "vibe": "jazz"},
-    "miles davis": {"energy": 0.4, "warmth": 0.85, "vibe": "jazz"},
-    "bill evans": {"energy": 0.25, "warmth": 0.95, "vibe": "jazz"},
-    "dave brubeck": {"energy": 0.4, "warmth": 0.85, "vibe": "jazz"},
-    "art blakey": {"energy": 0.55, "warmth": 0.85, "vibe": "jazz"},
-    "cannonball": {"energy": 0.5, "warmth": 0.9, "vibe": "jazz"},
-    "thelonious monk": {"energy": 0.4, "warmth": 0.85, "vibe": "jazz"},
-    "nujabes": {"energy": 0.35, "warmth": 0.8, "vibe": "jazz"},
-    "aruarian": {"energy": 0.3, "warmth": 0.85, "vibe": "jazz"},
+    # Fallback if no schedule
+    return ProgramContext(
+        show_id="midnight_signal",
+        show_name="Midnight Signal",
+        show_description="Philosophy and late-night transmissions.",
+        host="liminal_operator",
+        topic_focus="philosophy",
+        segment_types=["deep_dive", "story"],
+        bumper_style="ambient",
+        voices={"host": "am_michael"},
+    )
 
-    # Classical - low-moderate energy, warm
-    "classical": {"energy": 0.25, "warmth": 0.8, "vibe": "classical"},
-    "chopin": {"energy": 0.2, "warmth": 0.9, "vibe": "classical"},
-    "debussy": {"energy": 0.2, "warmth": 0.85, "vibe": "classical"},
-    "arvo pärt": {"energy": 0.15, "warmth": 0.9, "vibe": "classical"},
-    "arvo part": {"energy": 0.15, "warmth": 0.9, "vibe": "classical"},
-    "satie": {"energy": 0.15, "warmth": 0.85, "vibe": "classical"},
-    "bach": {"energy": 0.3, "warmth": 0.8, "vibe": "classical"},
-    "ravel": {"energy": 0.3, "warmth": 0.85, "vibe": "classical"},
 
-    # Soul/R&B - moderate-high energy, very warm
-    "soul": {"energy": 0.5, "warmth": 0.95, "vibe": "soul"},
-    "al green": {"energy": 0.45, "warmth": 0.95, "vibe": "soul"},
-    "marvin gaye": {"energy": 0.5, "warmth": 0.95, "vibe": "soul"},
-    "d'angelo": {"energy": 0.45, "warmth": 0.9, "vibe": "soul"},
-    "erykah badu": {"energy": 0.4, "warmth": 0.9, "vibe": "soul"},
-    "stevie wonder": {"energy": 0.6, "warmth": 0.95, "vibe": "soul"},
-    "aretha": {"energy": 0.6, "warmth": 0.95, "vibe": "soul"},
-    "otis redding": {"energy": 0.55, "warmth": 0.95, "vibe": "soul"},
-    "sade": {"energy": 0.35, "warmth": 0.9, "vibe": "soul_slow"},
-    "frank ocean": {"energy": 0.35, "warmth": 0.85, "vibe": "soul_slow"},
-
-    # Funk/Disco - high energy, warm
-    "funk": {"energy": 0.75, "warmth": 0.85, "vibe": "funk"},
-    "disco": {"energy": 0.8, "warmth": 0.7, "vibe": "disco"},
-    "james brown": {"energy": 0.8, "warmth": 0.9, "vibe": "funk"},
-    "parliament": {"energy": 0.75, "warmth": 0.85, "vibe": "funk"},
-    "prince": {"energy": 0.7, "warmth": 0.8, "vibe": "funk"},
-    "donna summer": {"energy": 0.85, "warmth": 0.7, "vibe": "disco"},
-    "bee gees": {"energy": 0.75, "warmth": 0.75, "vibe": "disco"},
-    "chic": {"energy": 0.8, "warmth": 0.75, "vibe": "disco"},
-    "anderson paak": {"energy": 0.65, "warmth": 0.85, "vibe": "funk"},
-    "vulfpeck": {"energy": 0.65, "warmth": 0.9, "vibe": "funk"},
-
-    # Hip-hop - variable energy
-    "tribe called quest": {"energy": 0.55, "warmth": 0.8, "vibe": "hiphop_chill"},
-    "j dilla": {"energy": 0.45, "warmth": 0.85, "vibe": "hiphop_chill"},
-    "madlib": {"energy": 0.4, "warmth": 0.75, "vibe": "hiphop_chill"},
-    "mf doom": {"energy": 0.45, "warmth": 0.7, "vibe": "hiphop_chill"},
-    "kendrick": {"energy": 0.65, "warmth": 0.75, "vibe": "hiphop"},
-    "kanye": {"energy": 0.7, "warmth": 0.6, "vibe": "hiphop"},
-    "tyler": {"energy": 0.6, "warmth": 0.7, "vibe": "hiphop"},
-    "outkast": {"energy": 0.7, "warmth": 0.8, "vibe": "hiphop"},
-
-    # Bossa/Brazilian - moderate energy, very warm
-    "bossa": {"energy": 0.3, "warmth": 0.95, "vibe": "bossa"},
-    "jobim": {"energy": 0.3, "warmth": 0.95, "vibe": "bossa"},
-    "gilberto": {"energy": 0.3, "warmth": 0.95, "vibe": "bossa"},
-    "astrud": {"energy": 0.3, "warmth": 0.95, "vibe": "bossa"},
-    "getz": {"energy": 0.35, "warmth": 0.9, "vibe": "bossa"},
-    "buena vista": {"energy": 0.45, "warmth": 0.95, "vibe": "world"},
-
-    # Reggae/Dub - moderate energy, warm
-    "reggae": {"energy": 0.45, "warmth": 0.85, "vibe": "dub"},
-    "dub": {"energy": 0.4, "warmth": 0.75, "vibe": "dub"},
-    "bob marley": {"energy": 0.5, "warmth": 0.9, "vibe": "dub"},
-    "king tubby": {"energy": 0.4, "warmth": 0.7, "vibe": "dub"},
-    "lee perry": {"energy": 0.45, "warmth": 0.75, "vibe": "dub"},
-    "augustus pablo": {"energy": 0.35, "warmth": 0.8, "vibe": "dub"},
-    "burning spear": {"energy": 0.5, "warmth": 0.85, "vibe": "dub"},
-    "black uhuru": {"energy": 0.5, "warmth": 0.8, "vibe": "dub"},
-    "toots": {"energy": 0.55, "warmth": 0.9, "vibe": "dub"},
-    "dennis brown": {"energy": 0.5, "warmth": 0.9, "vibe": "dub"},
-
-    # Downtempo/Trip-hop - low-moderate energy
-    "downtempo": {"energy": 0.35, "warmth": 0.6, "vibe": "downtempo"},
-    "trip-hop": {"energy": 0.4, "warmth": 0.5, "vibe": "downtempo"},
-    "massive attack": {"energy": 0.45, "warmth": 0.5, "vibe": "downtempo"},
-    "portishead": {"energy": 0.35, "warmth": 0.4, "vibe": "downtempo"},
-    "tricky": {"energy": 0.4, "warmth": 0.45, "vibe": "downtempo"},
-    "thievery corporation": {"energy": 0.4, "warmth": 0.6, "vibe": "downtempo"},
-    "kruder": {"energy": 0.35, "warmth": 0.6, "vibe": "downtempo"},
-    "dorfmeister": {"energy": 0.35, "warmth": 0.6, "vibe": "downtempo"},
-    "nightmares on wax": {"energy": 0.4, "warmth": 0.7, "vibe": "downtempo"},
-
-    # Indie/Alternative - variable
-    "radiohead": {"energy": 0.5, "warmth": 0.5, "vibe": "indie"},
-    "arcade fire": {"energy": 0.65, "warmth": 0.6, "vibe": "indie"},
-    "bon iver": {"energy": 0.3, "warmth": 0.75, "vibe": "indie"},
-    "beach house": {"energy": 0.35, "warmth": 0.6, "vibe": "indie"},
-    "tame impala": {"energy": 0.55, "warmth": 0.65, "vibe": "indie"},
-    "mac demarco": {"energy": 0.4, "warmth": 0.75, "vibe": "indie"},
-    "khruangbin": {"energy": 0.45, "warmth": 0.8, "vibe": "indie"},
-    "gorillaz": {"energy": 0.55, "warmth": 0.6, "vibe": "indie"},
-    "alt-j": {"energy": 0.45, "warmth": 0.55, "vibe": "indie"},
-    "sigur ros": {"energy": 0.35, "warmth": 0.7, "vibe": "indie"},
-
-    # Electronic/Dance - high energy, cold
-    "electronic": {"energy": 0.7, "warmth": 0.3, "vibe": "electronic"},
-    "house": {"energy": 0.75, "warmth": 0.4, "vibe": "electronic"},
-    "techno": {"energy": 0.8, "warmth": 0.2, "vibe": "electronic"},
-    "daft punk": {"energy": 0.75, "warmth": 0.5, "vibe": "electronic"},
-    "four tet": {"energy": 0.5, "warmth": 0.55, "vibe": "electronic_chill"},
-    "floating points": {"energy": 0.5, "warmth": 0.5, "vibe": "electronic_chill"},
-    "jamie xx": {"energy": 0.6, "warmth": 0.5, "vibe": "electronic"},
-    "kaytranada": {"energy": 0.65, "warmth": 0.6, "vibe": "electronic"},
-    "flume": {"energy": 0.7, "warmth": 0.45, "vibe": "electronic"},
-
-    # World Music - moderate energy, very warm
-    "world": {"energy": 0.5, "warmth": 0.9, "vibe": "world"},
-    "fela kuti": {"energy": 0.65, "warmth": 0.9, "vibe": "world"},
-    "ali farka": {"energy": 0.45, "warmth": 0.95, "vibe": "world"},
-    "youssou ndour": {"energy": 0.6, "warmth": 0.9, "vibe": "world"},
-    "tinariwen": {"energy": 0.5, "warmth": 0.85, "vibe": "world"},
-    "mulatu": {"energy": 0.45, "warmth": 0.9, "vibe": "world"},
-
-    # Arabic - moderate energy, very warm
-    "amr diab": {"energy": 0.55, "warmth": 0.9, "vibe": "world"},
-    "عمرو دياب": {"energy": 0.55, "warmth": 0.9, "vibe": "world"},
-    "fairuz": {"energy": 0.35, "warmth": 0.95, "vibe": "world"},
-    "umm kulthum": {"energy": 0.4, "warmth": 0.95, "vibe": "world"},
-    "abdel halim": {"energy": 0.45, "warmth": 0.95, "vibe": "world"},
-    "ahmed mounib": {"energy": 0.4, "warmth": 0.95, "vibe": "world"},
-    "salah ragab": {"energy": 0.55, "warmth": 0.9, "vibe": "jazz"},
-
-    # Lo-fi / Chill beats
-    "lofi": {"energy": 0.25, "warmth": 0.7, "vibe": "downtempo"},
-    "lo-fi": {"energy": 0.25, "warmth": 0.7, "vibe": "downtempo"},
-    "tomppabeats": {"energy": 0.25, "warmth": 0.75, "vibe": "downtempo"},
-    "jinsang": {"energy": 0.25, "warmth": 0.7, "vibe": "downtempo"},
-    "idealism": {"energy": 0.2, "warmth": 0.75, "vibe": "downtempo"},
-    "uyama hiroto": {"energy": 0.3, "warmth": 0.8, "vibe": "jazz"},
-
-    # More indie/alternative
-    "men i trust": {"energy": 0.35, "warmth": 0.65, "vibe": "indie"},
-    "magdalena bay": {"energy": 0.55, "warmth": 0.5, "vibe": "indie"},
-    "charli xcx": {"energy": 0.75, "warmth": 0.4, "vibe": "electronic"},
-    "lana del rey": {"energy": 0.3, "warmth": 0.7, "vibe": "indie"},
-    "fka twigs": {"energy": 0.45, "warmth": 0.5, "vibe": "electronic"},
-    "yellow days": {"energy": 0.4, "warmth": 0.75, "vibe": "indie"},
-
-    # Rock classics
-    "pink floyd": {"energy": 0.45, "warmth": 0.6, "vibe": "rock"},
-    "led zeppelin": {"energy": 0.7, "warmth": 0.7, "vibe": "rock"},
-    "the beatles": {"energy": 0.5, "warmth": 0.8, "vibe": "rock"},
-    "beatles": {"energy": 0.5, "warmth": 0.8, "vibe": "rock"},
-    "fleetwood mac": {"energy": 0.55, "warmth": 0.75, "vibe": "rock"},
-    "steely dan": {"energy": 0.5, "warmth": 0.8, "vibe": "rock"},
-
-    # More hip-hop
-    "young thug": {"energy": 0.7, "warmth": 0.5, "vibe": "hiphop"},
-    "playboi carti": {"energy": 0.75, "warmth": 0.35, "vibe": "hiphop"},
-    "travis scott": {"energy": 0.75, "warmth": 0.45, "vibe": "hiphop"},
-    "a$ap rocky": {"energy": 0.65, "warmth": 0.55, "vibe": "hiphop"},
-    "asap rocky": {"energy": 0.65, "warmth": 0.55, "vibe": "hiphop"},
-
-    # More electronic
-    "against all logic": {"energy": 0.6, "warmth": 0.5, "vibe": "electronic"},
-    "nicolas jaar": {"energy": 0.45, "warmth": 0.55, "vibe": "electronic_chill"},
-    "100 gecs": {"energy": 0.85, "warmth": 0.2, "vibe": "electronic"},
-
-    # K-pop - high energy
-    "loona": {"energy": 0.75, "warmth": 0.5, "vibe": "electronic"},
-    "이달의 소녀": {"energy": 0.75, "warmth": 0.5, "vibe": "electronic"},
-
-    # Rock - variable energy
-    "rock": {"energy": 0.7, "warmth": 0.6, "vibe": "rock"},
-    "depeche mode": {"energy": 0.55, "warmth": 0.4, "vibe": "electronic"},
-    "cocteau twins": {"energy": 0.4, "warmth": 0.6, "vibe": "indie"},
-    "cherry-coloured": {"energy": 0.4, "warmth": 0.6, "vibe": "indie"},
-
-    # Pop - high energy
-    "britney": {"energy": 0.8, "warmth": 0.5, "vibe": "electronic"},
-    "dua lipa": {"energy": 0.8, "warmth": 0.55, "vibe": "disco"},
-    "drake": {"energy": 0.6, "warmth": 0.6, "vibe": "hiphop"},
-}
-
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
 
 def signal_handler(signum, frame):
     global running, encoder_proc
@@ -404,7 +171,7 @@ _last_listener_check = 0.0
 
 
 def get_listener_count() -> int:
-    """Fetch listener count with a short cache to avoid blocking playback."""
+    """Fetch listener count with a short cache."""
     global _last_listener_count, _last_listener_check
     now = time.time()
     if now - _last_listener_check < LISTENER_CACHE_SECONDS:
@@ -433,28 +200,32 @@ def write_json_atomic(path: Path, payload: dict) -> None:
 def update_now_playing(
     track: str,
     track_type: str,
-    vibe: str = None,
-    time_period: str = None,
     show_id: str | None = None,
     show_name: str | None = None,
+    host: str | None = None,
+    segment_type: str | None = None,
+    caption: str | None = None,
 ):
     """Write current track info to JSON file."""
     global current_track_info
     current_track_info = {
         "track": track,
         "type": track_type,
-        "vibe": vibe,
-        "time_period": time_period,
+        "host": host,
+        "segment_type": segment_type,
         "show_id": show_id,
         "show": show_name,
         "timestamp": datetime.now().isoformat(),
         "listeners": get_listener_count(),
     }
+    if caption is not None:
+        current_track_info["ai_generated"] = True
+        current_track_info["caption"] = caption
     for path in NOW_PLAYING_PATHS:
         try:
             write_json_atomic(path, current_track_info)
         except Exception:
-            pass  # Non-critical
+            pass
 
 
 def check_command() -> str | None:
@@ -468,34 +239,24 @@ def check_command() -> str | None:
     return None
 
 
-def get_audio_files(directory: Path, recursive: bool = False) -> list[Path]:
-    if not directory.exists():
-        return []
-    extensions = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus"}
-    if recursive:
-        return [f for f in directory.rglob("*") if f.is_file() and f.suffix.lower() in extensions]
-    return [f for f in directory.iterdir() if f.is_file() and f.suffix.lower() in extensions]
 
-
-def get_all_music() -> list[Path]:
-    """Get music from all configured directories."""
-    all_music = []
-    for music_dir in MUSIC_DIRS:
-        recursive = "Archive" in str(music_dir)
-        files = get_audio_files(music_dir, recursive=recursive)
-        all_music.extend(files)
-        log(f"Found {len(files)} tracks in {music_dir.name}")
-    return all_music
-
-
-def clean_name(filepath: Path, is_segment: bool = False) -> str:
+def clean_name(filepath: Path, is_speech: bool = False) -> str:
     name = filepath.stem
 
-    # For segments, return friendly names based on type
-    if is_segment:
+    if is_speech:
         segment_types = {
-            "station_id": "WVOID-FM",
-            "hour_marker": "The Liminal Hour",
+            "listener_response": "Listener Mail",
+            "deep_dive": "Deep Dive",
+            "news_analysis": "Signal Report",
+            "interview": "The Interview",
+            "panel": "Crosswire",
+            "story": "Story Hour",
+            "listener_mailbag": "Listener Hours",
+            "music_essay": "Sonic Essay",
+            "station_id": "WRIT-FM",
+            "show_intro": "Show Opening",
+            "show_outro": "Show Closing",
+            # Legacy types
             "long_talk": "The Operator Speaks",
             "music_history": "Sonic Archaeology",
             "late_night": "Late Night Transmission",
@@ -515,239 +276,11 @@ def clean_name(filepath: Path, is_segment: bool = False) -> str:
         r'\s*\(Full Album.*?\)', r'\s*\[Full Album.*?\]',
         r'\s*\(HD\)', r'\s*\[HD\]', r'\s*\(Audio\)', r'\s*\[Audio\]',
         r'\s*\(Lyrics\)', r'\s*\[Lyrics\]', r'\s*\(Visualizer\)',
-        r'\s*｜.*$', r'\s*⧹.*$', r'_seg\d+_\d+$',
+        r'\s*\|.*$', r'\s*\u29f9.*$', r'_seg\d+_\d+$',
     ]
     for p in patterns:
         name = re.sub(p, '', name, flags=re.IGNORECASE)
     return name.strip()
-
-
-def classify_track(filepath: Path) -> TrackMood:
-    """Classify a track based on its filename/path."""
-    name_lower = str(filepath).lower()
-    best = max(
-        ((k, v) for k, v in MOOD_SIGNATURES.items() if k in name_lower),
-        key=lambda x: len(x[0]),
-        default=(None, None)
-    )[1]
-    if best:
-        return TrackMood(energy=best["energy"], warmth=best["warmth"], vibe=best["vibe"])
-    return TrackMood(energy=0.5, warmth=0.5, vibe="unknown")
-
-
-def get_current_time_profile() -> dict:
-    """Get the current time period profile."""
-    hour = datetime.now().hour
-    for name, profile in TIME_PROFILES.items():
-        if hour in profile["hours"]:
-            return {"name": name, **profile}
-    return TIME_PROFILES["late_night"]
-
-
-def score_track_for_time(track: Path, profile: dict) -> float:
-    """Score how well a track fits the current time period."""
-    mood = classify_track(track)
-    score = 0.0
-
-    # Energy fit (0-40 points)
-    min_energy, max_energy = profile["energy_range"]
-    if min_energy <= mood.energy <= max_energy:
-        score += 40
-    else:
-        # Penalize based on distance from range
-        if mood.energy < min_energy:
-            score += max(0, 30 - (min_energy - mood.energy) * 50)
-        else:
-            score += max(0, 30 - (mood.energy - max_energy) * 50)
-
-    # Warmth fit (0-30 points)
-    warmth_diff = abs(mood.warmth - profile["prefer_warmth"])
-    score += max(0, 30 - warmth_diff * 40)
-
-    # Vibe bonus (0-30 points)
-    if mood.vibe in profile["vibes"]:
-        vibe_idx = profile["vibes"].index(mood.vibe)
-        score += 30 - (vibe_idx * 3)  # Earlier in list = better fit
-
-    # Small random factor for variety (0-10 points)
-    score += random.random() * 10
-
-    return score
-
-
-def create_curated_queue(music: list[Path], size: int = 20, profile: dict | None = None) -> list[Path]:
-    """Create a curated queue of tracks appropriate for the current program."""
-    profile = profile or get_current_time_profile()
-    log(f"Time period: {profile['name']} - {profile['description']}")
-
-    # Filter out recently played tracks
-    if HISTORY_ENABLED:
-        history = get_history()
-        fresh_music = history.filter_recent(music, hours=24)
-        if len(fresh_music) < size * 2:
-            # Not enough fresh tracks, allow some repeats
-            fresh_music = history.filter_recent(music, hours=6)
-        if fresh_music:
-            music = fresh_music
-            log(f"After history filter: {len(music)} eligible tracks")
-
-    # Score all tracks
-    scored = [(track, score_track_for_time(track, profile)) for track in music]
-
-    # Sort by score descending
-    scored.sort(key=lambda x: x[1], reverse=True)
-
-    # Take top candidates with some randomization
-    # Select from top 50% of scored tracks to maintain variety
-    top_half = scored[:max(len(scored) // 2, size * 2)]
-    random.shuffle(top_half)
-
-    selected = []
-    last_vibe = None
-
-    for track, score in top_half:
-        if len(selected) >= size:
-            break
-
-        mood = classify_track(track)
-
-        # Avoid too many of same vibe in a row
-        if mood.vibe == last_vibe and random.random() < 0.6:
-            continue
-
-        selected.append(track)
-        last_vibe = mood.vibe
-
-    # If we didn't get enough, just add more from top
-    if len(selected) < size:
-        for track, score in top_half:
-            if track not in selected:
-                selected.append(track)
-                if len(selected) >= size:
-                    break
-
-    return selected
-
-
-def get_program_context(station_schedule=None) -> ProgramContext:
-    """Resolve the current show/program, falling back to time-of-day profiles."""
-    if station_schedule is not None:
-        resolved = station_schedule.resolve()
-        return ProgramContext(
-            show_id=resolved.show_id,
-            show_name=resolved.name,
-            show_description=resolved.description,
-            music_profile=resolved.music_profile,
-            segment_after_tracks=resolved.segment_after_tracks,
-            podcasts_enabled=resolved.podcasts_enabled,
-            podcast_hours=set(resolved.podcast_hours),
-        )
-
-    profile = get_current_time_profile()
-    return ProgramContext(
-        show_id=profile["name"],
-        show_name=profile["name"],
-        show_description=profile["description"],
-        music_profile=profile,
-        segment_after_tracks=1,
-        podcasts_enabled=True,
-        podcast_hours=set(PODCAST_HOURS),
-    )
-
-
-def select_show_asset(show_id: str, asset_type: str) -> Path | None:
-    """Select the newest show asset WAV (e.g., bumper_in) for a given show_id."""
-    show_dir = SEGMENTS_DIR / "shows" / show_id
-    if not show_dir.exists():
-        return None
-
-    candidates = sorted(
-        show_dir.glob(f"{asset_type}_*.wav"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    if candidates:
-        return candidates[0]
-
-    exact = show_dir / f"{asset_type}.wav"
-    if exact.exists():
-        return exact
-
-    return None
-
-
-SEGMENT_TYPES = [
-    "listener_dedication", "station_id", "hour_marker", "long_talk",
-    "monologue", "late_night", "music_history", "dedication",
-    "weather", "news", "poetry"
-]
-
-
-def get_segment_type(seg: Path) -> str:
-    """Extract segment type from filename."""
-    name = seg.name.lower()
-    for stype in SEGMENT_TYPES:
-        if stype in name:
-            return stype
-    return "other"
-
-
-def get_current_period() -> str:
-    """Get the current time period name."""
-    hour = datetime.now().hour
-    if hour < 6: return "late_night"
-    if hour < 12: return "morning"
-    if hour < 18: return "afternoon"
-    return "evening"
-
-
-def select_segment(base_dir: Path) -> Path | None:
-    """Select a segment from the current period's folder.
-
-    Falls back to any segment if period folder is empty.
-    Prioritizes listener dedications.
-    """
-    global last_segment_type
-    period = get_current_period()
-    period_dir = base_dir / period
-
-    # Get segments from period folder, or fall back to base
-    if period_dir.exists():
-        segments = list(period_dir.glob("*.wav"))
-    else:
-        segments = []
-
-    # Fall back to base directory if period folder empty
-    if not segments:
-        segments = list(base_dir.glob("*.wav"))
-
-    if not segments:
-        return None
-
-    # Prioritize listener dedications (newest first)
-    dedications = sorted(
-        [s for s in segments if "listener_dedication" in s.name.lower()],
-        key=lambda x: x.stat().st_mtime,
-        reverse=True
-    )
-    if dedications and last_segment_type != "listener_dedication":
-        selected = dedications[0]
-        last_segment_type = "listener_dedication"
-        return selected
-
-    # Pick randomly, avoiding same type twice in a row
-    available = [s for s in segments if get_segment_type(s) != last_segment_type]
-    if not available:
-        available = segments
-
-    selected = random.choice(available)
-    last_segment_type = get_segment_type(selected)
-    return selected
-
-
-def should_play_segment(time_period: str) -> bool:
-    """Play a segment after every song (1 song, 1 talk pattern)."""
-    return force_segment or tracks_since_segment >= 1
 
 
 def get_track_duration(filepath: Path) -> float | None:
@@ -760,87 +293,138 @@ def get_track_duration(filepath: Path) -> float | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
-    except:
+    except Exception:
         pass
     return None
 
 
-# Track chopping (for long albums/mixes)
-MAX_TRACK_DURATION = 150  # 2.5 minutes - chop longer tracks
-CHUNK_MIN_DURATION = 90   # 1.5 minutes minimum chunk
-CHUNK_MAX_DURATION = 150  # 2.5 minutes maximum chunk
-
-# Runtime state
-last_segment_type = None
-tracks_since_segment = 0
-
-
 # =============================================================================
-# PODCAST SCHEDULING
+# TALK SEGMENT MANAGEMENT
 # =============================================================================
 
+def get_talk_segments(show_id: str) -> list[Path]:
+    """Load pre-generated talk segments for a show.
 
-def get_all_podcasts() -> list[Path]:
-    """Get all podcast files from the podcasts directory."""
-    if not PODCASTS_DIR.exists():
+    Checks show-specific directory first, then falls back to legacy period folders.
+    Listener responses are sorted to the front so they air first.
+    """
+    segments = []
+
+    # Primary: show-specific talk segments
+    show_dir = TALK_SEGMENTS_DIR / show_id
+    if show_dir.exists():
+        segments = sorted(show_dir.glob("*.wav"), key=lambda p: p.stat().st_mtime)
+
+    # Fallback: legacy period-based segments
+    if not segments:
+        period = _get_current_period()
+        period_dir = SEGMENTS_DIR / period
+        if period_dir.exists():
+            segments = list(period_dir.glob("*.wav"))
+        if not segments:
+            segments = list(SEGMENTS_DIR.glob("*.wav"))
+
+    # Prioritize listener responses — they should air before other talk segments
+    listener_responses = [s for s in segments if "listener_response" in s.name]
+    other_segments = [s for s in segments if "listener_response" not in s.name]
+    return listener_responses + other_segments
+
+
+def get_listener_responses(show_id: str) -> list[Path]:
+    """Check for new listener response segments (for mid-queue injection)."""
+    show_dir = TALK_SEGMENTS_DIR / show_id
+    if not show_dir.exists():
         return []
-    exts = {".mp3", ".flac", ".m4a", ".wav", ".ogg", ".aac"}
-    podcasts = [f for f in PODCASTS_DIR.iterdir() if f.suffix.lower() in exts]
-    return sorted(podcasts, key=lambda p: p.stat().st_mtime, reverse=True)
+    return sorted(
+        (f for f in show_dir.glob("listener_response_*.wav")),
+        key=lambda p: p.stat().st_mtime,
+    )
 
 
-def should_play_podcast() -> bool:
-    """Check if it's time to play a podcast (every 3 hours)."""
-    current_hour = datetime.now().hour
-    return current_hour in PODCAST_HOURS and last_podcast_hour != current_hour
+def _get_current_period() -> str:
+    """Map current hour to legacy period name."""
+    hour = datetime.now().hour
+    if hour < 6:
+        return "late_night"
+    if hour < 12:
+        return "morning"
+    if hour < 18:
+        return "afternoon"
+    return "evening"
 
 
-def select_podcast(podcasts: list[Path]) -> Path | None:
-    """Select a podcast, preferring unplayed ones."""
-    if not podcasts:
+# =============================================================================
+# BUMPER MUSIC SELECTION
+# =============================================================================
+
+
+def select_ai_bumper(show_id: str) -> tuple[Path, float, float, str | None, str | None] | None:
+    """Pick a pre-generated AI music bumper for the current show.
+
+    Returns (path, start_time, duration, caption, display_name) or None if unavailable.
+    """
+    show_dir = AI_BUMPERS_DIR / show_id
+    if not show_dir.exists():
         return None
+
+    audio_files = [
+        f for f in show_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in {".flac", ".mp3", ".wav"}
+    ]
+    if not audio_files:
+        return None
+
+    # Filter recently played if history available
+    candidates = audio_files
     if HISTORY_ENABLED:
         try:
             history = get_history()
-            unplayed = [p for p in podcasts if not history.was_played_recently(str(p), hours=24)]
-            if unplayed:
-                return random.choice(unplayed)
+            fresh = history.filter_recent(audio_files, hours=4)
+            if fresh:
+                candidates = fresh
         except Exception:
             pass
-    return random.choice(podcasts[:5]) if len(podcasts) > 5 else random.choice(podcasts)
+
+    track = random.choice(candidates)
+    duration = get_track_duration(track)
+
+    caption = None
+    display_name = None
+    meta_path = track.with_suffix(".json")
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+            caption = meta.get("caption")
+            display_name = meta.get("display_name")
+        except Exception:
+            pass
+
+    return (track, 0.0, duration or 90.0, caption, display_name)
 
 
-
+# =============================================================================
+# AUDIO PIPELINE (unchanged from original)
+# =============================================================================
 
 def decode_to_pcm(filepath: Path, start_time: float = 0, duration: float = None, is_speech: bool = False) -> subprocess.Popen:
-    """Decode audio file to raw PCM, output to stdout.
-
-    Args:
-        filepath: Audio file path
-        start_time: Start position in seconds (for chopping long tracks)
-        duration: Duration to extract in seconds (None = full track)
-        is_speech: If True, use louder normalization for speech content
-    """
+    """Decode audio file to raw PCM, output to stdout."""
     cmd = ["ffmpeg", "-v", "warning"]
 
-    # Seek to start position (before input for faster seeking)
     if start_time > 0:
         cmd.extend(["-ss", str(start_time)])
 
     cmd.extend(["-i", str(filepath)])
 
-    # Limit duration if specified
     if duration is not None:
         cmd.extend(["-t", str(duration)])
 
-    # Build audio filter chain
-    # Speech (segments/podcasts) gets louder normalization (-14 LUFS vs -16 for music)
+    # Speech gets louder normalization (-14 LUFS vs -16 for music)
     if is_speech:
         filters = ["loudnorm=I=-14:TP=-1.5:LRA=7"]
     else:
         filters = ["loudnorm=I=-16:TP=-1.5:LRA=11"]
 
-    # Add fade in/out (8 seconds each) - only for music, not speech
+    # Fade in/out for music bumpers only
     if not is_speech:
         filters.append("afade=t=in:st=0:d=8")
         if duration is not None and duration > 16:
@@ -879,44 +463,33 @@ def start_encoder() -> subprocess.Popen:
             "-acodec", "libmp3lame",
             "-b:a", "192k",
             "-content_type", "audio/mpeg",
-            "-ice_name", "WVOID-FM",
+            "-ice_name", "WRIT-FM",
             "-ice_description", "The frequency between frequencies",
-            "-ice_genre", "Eclectic",
+            "-ice_genre", "Talk Radio",
             "-f", "mp3",
             ICECAST_URL
         ],
         stdin=subprocess.PIPE,
-        stderr=subprocess.PIPE  # Capture stderr to diagnose issues
+        stderr=subprocess.PIPE
     )
 
 
 def wait_for_encoder_ready(encoder: subprocess.Popen, timeout: float = 2.0) -> bool:
-    """Wait briefly to ensure encoder connected successfully."""
-    import select
-    # Give the encoder a moment to fail if it's going to
+    """Wait briefly to ensure encoder connected."""
     time.sleep(0.3)
     if encoder.poll() is not None:
-        # Encoder already died - read stderr for reason
         try:
             stderr = encoder.stderr.read().decode() if encoder.stderr else ""
             if stderr:
                 log(f"Encoder error: {stderr[:200]}")
-        except:
+        except Exception:
             pass
         return False
     return True
 
 
 def pipe_track(filepath: Path, encoder: subprocess.Popen, start_time: float = 0, duration: float = None, is_speech: bool = False) -> bool:
-    """Decode a track and pipe PCM to encoder. Returns False if encoder died.
-
-    Args:
-        filepath: Audio file path
-        encoder: ffmpeg encoder subprocess
-        start_time: Start position for chopping
-        duration: Duration to play
-        is_speech: If True, use louder normalization (for segments/podcasts)
-    """
+    """Decode a track and pipe PCM to encoder. Returns False if encoder died."""
     global running, skip_current, force_segment
 
     if not running or encoder.poll() is not None:
@@ -934,26 +507,22 @@ def pipe_track(filepath: Path, encoder: subprocess.Popen, start_time: float = 0,
                 encoder.stdin.write(chunk)
                 encoder.stdin.flush()
             except BrokenPipeError:
-                # Try to get error message from encoder
                 try:
                     stderr = encoder.stderr.read().decode() if encoder.stderr else ""
                     if stderr:
                         log(f"Encoder pipe broke: {stderr[:200]}")
-                except:
+                except Exception:
                     pass
                 return False
 
             cmd = check_command()
             if cmd == "skip":
-                log("⏭ Skipping...")
+                log("Skipping...")
                 skip_current = True
                 break
             elif cmd == "segment":
                 log("Will play segment next...")
                 force_segment = True
-            elif cmd == "podcast":
-                log("Will play podcast next...")
-                force_podcast = True
 
         return True
 
@@ -965,25 +534,28 @@ def pipe_track(filepath: Path, encoder: subprocess.Popen, start_time: float = 0,
             try:
                 decoder.kill()
                 decoder.wait(timeout=1)
-            except:
+            except Exception:
                 pass
         if skip_current:
             skip_current = False
 
 
+# =============================================================================
+# MAIN LOOP - TALK FIRST
+# =============================================================================
+
 def run():
-    global running, encoder_proc, force_segment, force_podcast, tracks_since_segment, last_podcast_slot
+    global running, encoder_proc, force_segment
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    log("=== WVOID-FM Gapless Streamer ===")
-    log(f"Music sources: {len(MUSIC_DIRS)}")
-    log(f"Segments: {SEGMENTS_DIR}")
-    log(f"Podcasts: {PODCASTS_DIR}")
+    log("=== WRIT-FM Talk Radio Streamer ===")
+    log(f"Talk segments: {TALK_SEGMENTS_DIR}")
+    log(f"AI bumpers: {AI_BUMPERS_DIR}")
     log(f"Streaming to: {ICECAST_URL}")
 
-    # Load schedule if available
+    # Load schedule
     station_schedule = None
     if SCHEDULE_ENABLED and SCHEDULE_PATH.exists():
         try:
@@ -992,17 +564,29 @@ def run():
         except Exception as e:
             log(f"Schedule load failed, using fallback: {e}")
 
-    all_music = get_all_music()
-    all_podcasts = get_all_podcasts()
+    # Count talk segments
+    talk_count = 0
+    if TALK_SEGMENTS_DIR.exists():
+        for show_dir in TALK_SEGMENTS_DIR.iterdir():
+            if show_dir.is_dir():
+                c = len(list(show_dir.glob("*.wav")))
+                talk_count += c
+                if c > 0:
+                    log(f"  {show_dir.name}: {c} segments")
+    log(f"Total talk segments: {talk_count}")
 
-    # Count segments across period folders
-    segment_count = sum(len(list((SEGMENTS_DIR / p).glob("*.wav")))
-                       for p in ["late_night", "morning", "afternoon", "evening"]
-                       if (SEGMENTS_DIR / p).exists())
-    segment_count += len(list(SEGMENTS_DIR.glob("*.wav")))  # Plus any in root
-    log(f"Total library: {len(all_music)} tracks, {segment_count} segments, {len(all_podcasts)} podcasts")
-
-    queue_size = 15  # Curate 15 tracks at a time
+    # Count AI music bumpers
+    bumper_count = 0
+    if AI_BUMPERS_DIR.exists():
+        audio_exts = {".flac", ".mp3", ".wav"}
+        for show_dir in AI_BUMPERS_DIR.iterdir():
+            if show_dir.is_dir():
+                c = sum(1 for f in show_dir.iterdir() if f.suffix.lower() in audio_exts)
+                bumper_count += c
+    if bumper_count > 0:
+        log(f"AI music bumpers: {bumper_count} (will use instead of local music)")
+    else:
+        log("AI music bumpers: none (using local music library)")
 
     while running:
         log("Starting encoder...")
@@ -1016,140 +600,208 @@ def run():
         log("Encoder connected to Icecast")
 
         while running and encoder_proc.poll() is None:
-            # Get current program context from schedule
+            # Get current program context
             ctx = get_program_context(station_schedule)
-            profile = ctx.music_profile
-            segment_interval = ctx.segment_after_tracks
 
-            log(f"🎯 Show: {ctx.show_name} ({ctx.show_id})")
-            log(f"   {ctx.show_description}")
+            log(f"Show: {ctx.show_name} ({ctx.show_id})")
+            log(f"  Host: {ctx.host} | Focus: {ctx.topic_focus}")
 
-            # Create queue based on show's music profile
-            queue = create_curated_queue(all_music, queue_size, profile)
-            log(f"Queue: {len(queue)} tracks curated for {ctx.show_name}")
+            # Get talk segments for this show
+            talk_queue = get_talk_segments(ctx.show_id)
+            # Listener responses are already sorted to front; shuffle only the rest
+            lr_count = sum(1 for s in talk_queue if "listener_response" in s.name)
+            if lr_count < len(talk_queue):
+                priority = talk_queue[:lr_count]
+                rest = talk_queue[lr_count:]
+                random.shuffle(rest)
+                talk_queue = priority + rest
 
-            for track in queue:
-                if not running or encoder_proc.poll() is not None:
-                    break
+            if talk_queue:
+                log(f"  Talk queue: {len(talk_queue)} segments")
+                if lr_count:
+                    log(f"  Listener responses queued: {lr_count} (priority)")
 
-                # Check if show changed - if so, break and re-curate
-                new_ctx = get_program_context(station_schedule)
-                if new_ctx.show_id != ctx.show_id:
-                    log(f"Show changed to {new_ctx.show_name} - re-curating...")
-                    break
+                for talk_seg in talk_queue:
+                    if not running or encoder_proc.poll() is not None:
+                        break
 
-                # Check for scheduled or forced podcast
-                now = datetime.now()
-                current_slot = now.strftime("%Y%m%d%H")
-                should_podcast = (
-                    ctx.podcasts_enabled
-                    and now.hour in ctx.podcast_hours
-                    and last_podcast_slot != current_slot
-                )
+                    # Check if show changed
+                    new_ctx = get_program_context(station_schedule)
+                    if new_ctx.show_id != ctx.show_id:
+                        log(f"Show changed to {new_ctx.show_name} - switching...")
+                        break
 
-                if all_podcasts and (force_podcast or should_podcast):
-                    podcast = select_podcast(all_podcasts)
-                    if podcast:
-                        podcast_name = clean_name(podcast)
-                        podcast_duration = get_track_duration(podcast)
-                        duration_str = f" ({int(podcast_duration // 60)}:{int(podcast_duration % 60):02d})" if podcast_duration else ""
-                        prefix = "📻 [FORCED] PODCAST:" if force_podcast else "📻 PODCAST:"
-                        log(f"{prefix} {podcast_name}{duration_str}")
-                        update_now_playing(podcast_name, "podcast", None, ctx.show_id, ctx.show_name)
-                        force_podcast = False
-                        if pipe_track(podcast, encoder_proc, is_speech=True):
-                            last_podcast_slot = current_slot
+                    # Play talk segment
+                    seg_name = clean_name(talk_seg, is_speech=True)
+                    seg_type = _extract_segment_type(talk_seg)
+                    log(f"  TALK: {seg_name}")
+                    update_now_playing(
+                        seg_name, "talk",
+                        show_id=ctx.show_id,
+                        show_name=ctx.show_name,
+                        host=ctx.host,
+                        segment_type=seg_type,
+                    )
+
+                    if not pipe_track(talk_seg, encoder_proc, is_speech=True):
+                        log("Talk pipe failed, reconnecting...")
+                        break
+
+                    # Delete talk segment after playing
+                    try:
+                        talk_seg.unlink()
+                        log(f"    (consumed)")
+                    except Exception:
+                        pass
+
+                    # Record in history
+                    if HISTORY_ENABLED:
+                        try:
+                            history = get_history()
+                            history.record_play(
+                                filepath=str(talk_seg),
+                                track_name=seg_name,
+                                vibe="talk",
+                                time_period=ctx.show_id,
+                                listeners=get_listener_count(),
+                            )
+                        except Exception:
+                            pass
+
+                    # Play music bumper between talk segments
+                    if running and encoder_proc.poll() is None:
+                        ai_bumper = select_ai_bumper(ctx.show_id)
+                        if ai_bumper:
+                            bpath, bstart, bdur, bcaption, bdisplay = ai_bumper
+                            bname = bdisplay or "AI Music"
+                            log(f"  AI BUMPER: {bname} ({int(bdur)}s)")
+                            if bcaption:
+                                log(f"    {bcaption[:70]}...")
+                            update_now_playing(
+                                bname, "bumper",
+                                show_id=ctx.show_id,
+                                show_name=ctx.show_name,
+                                caption=bcaption,
+                            )
+                            if not pipe_track(bpath, encoder_proc, bstart, bdur):
+                                log("AI bumper pipe failed, continuing...")
+
                             if HISTORY_ENABLED:
                                 try:
                                     history = get_history()
                                     history.record_play(
-                                        filepath=str(podcast),
-                                        track_name=podcast_name,
-                                        vibe="podcast",
+                                        filepath=str(bpath),
+                                        track_name=bname,
+                                        vibe="ai_bumper",
                                         time_period=ctx.show_id,
                                         listeners=get_listener_count(),
                                     )
                                 except Exception:
                                     pass
                         else:
-                            log("Podcast pipe failed, continuing...")
+                            log("  No AI bumpers available, skipping break")
 
-                # Handle forced segment
-                if force_segment:
-                    seg = select_segment(SEGMENTS_DIR)
-                    if seg:
-                        log(f"🎙 [FORCED] {clean_name(seg, is_segment=True)}")
-                        pipe_track(seg, encoder_proc, is_speech=True)
-                    force_segment = False
+                    # Check for new listener responses that arrived mid-queue
+                    if running and encoder_proc.poll() is None:
+                        fresh = get_listener_responses(ctx.show_id)
+                        # Only play ones not already in our queue
+                        queued_names = {s.name for s in talk_queue}
+                        fresh = [f for f in fresh if f.name not in queued_names]
+                        for resp in fresh:
+                            if not running or encoder_proc.poll() is not None:
+                                break
+                            resp_name = clean_name(resp, is_speech=True)
+                            log(f"  LISTENER RESPONSE (live): {resp_name}")
+                            update_now_playing(
+                                resp_name, "talk",
+                                show_id=ctx.show_id,
+                                show_name=ctx.show_name,
+                                host=ctx.host,
+                                segment_type="listener_response",
+                            )
+                            if pipe_track(resp, encoder_proc, is_speech=True):
+                                try:
+                                    resp.unlink()
+                                    log(f"    (consumed)")
+                                except Exception:
+                                    pass
 
-                # Play track (chop if too long)
-                mood = classify_track(track)
-                name = clean_name(track)
-                track_duration = get_track_duration(track)
+            else:
+                # No talk segments — loop AI bumpers until talk appears
+                log("  No talk segments — AI bumper loop")
 
-                start_time = 0
-                play_duration = track_duration
+                bumper_count = 0
+                while running and encoder_proc.poll() is None and bumper_count < 20:
+                    # Check if show changed or talk segments appeared
+                    new_ctx = get_program_context(station_schedule)
+                    if new_ctx.show_id != ctx.show_id:
+                        break
+                    new_talks = get_talk_segments(ctx.show_id)
+                    if new_talks:
+                        log("  Talk segments found — switching to talk mode")
+                        break
 
-                if track_duration and track_duration > MAX_TRACK_DURATION:
-                    play_duration = random.uniform(CHUNK_MIN_DURATION, CHUNK_MAX_DURATION)
-                    max_start = track_duration - play_duration - 10
-                    if max_start > 10:
-                        start_time = random.uniform(10, max_start)
-                    mins = int(start_time // 60)
-                    secs = int(start_time % 60)
-                    log(f"♪ {name} [{mood.vibe}, e:{mood.energy:.1f}] (chunk @{mins}:{secs:02d})")
-                else:
-                    log(f"♪ {name} [{mood.vibe}, e:{mood.energy:.1f}]")
+                    ai_bumper = select_ai_bumper(ctx.show_id)
+                    if not ai_bumper:
+                        log("  No AI bumpers available — waiting 30s...")
+                        time.sleep(30)
+                        continue
 
-                update_now_playing(name, "music", mood.vibe, ctx.show_id, ctx.show_name)
+                    bpath, bstart, bdur, bcaption, bdisplay = ai_bumper
+                    bname = bdisplay or "AI Music"
+                    log(f"  AI BUMPER: {bname} ({int(bdur)}s)")
+                    if bcaption:
+                        log(f"    {bcaption[:70]}...")
+                    update_now_playing(
+                        bname, "bumper",
+                        show_id=ctx.show_id,
+                        show_name=ctx.show_name,
+                        caption=bcaption,
+                    )
 
-                if not pipe_track(track, encoder_proc, start_time, play_duration):
-                    log("Pipe failed, reconnecting...")
-                    break
+                    if not pipe_track(bpath, encoder_proc, bstart, bdur):
+                        break
 
-                if HISTORY_ENABLED:
-                    try:
-                        history = get_history()
-                        history.record_play(
-                            filepath=str(track),
-                            track_name=name,
-                            vibe=mood.vibe,
-                            time_period=ctx.show_id,
-                            listeners=get_listener_count(),
-                        )
-                    except Exception:
-                        pass
+                    if HISTORY_ENABLED:
+                        try:
+                            history = get_history()
+                            history.record_play(
+                                filepath=str(bpath),
+                                track_name=bname,
+                                vibe="ai_bumper",
+                                time_period=ctx.show_id,
+                                listeners=get_listener_count(),
+                            )
+                        except Exception:
+                            pass
 
-                tracks_since_segment += 1
-
-                # Play segment based on show's segment_after_tracks setting
-                if force_segment or tracks_since_segment >= segment_interval:
-                    seg = select_segment(SEGMENTS_DIR)
-                    if seg:
-                        seg_name = clean_name(seg, is_segment=True)
-                        is_listener_dedication = "listener_dedication" in seg.name.lower() or "listener_" in seg.name.lower()
-                        log(f"🎙 {seg_name}")
-                        update_now_playing(seg_name, "segment", None, ctx.show_id, ctx.show_name)
-                        if not pipe_track(seg, encoder_proc, is_speech=True):
-                            log("Segment pipe failed, reconnecting...")
-                            break
-                        if is_listener_dedication:
-                            try:
-                                seg.unlink()
-                                log(f"   (dedication played and removed)")
-                            except Exception as e:
-                                log(f"   (failed to remove dedication: {e})")
-                        tracks_since_segment = 0
-                        force_segment = False
+                    bumper_count += 1
 
             if running and encoder_proc.poll() is None:
-                log("Queue complete, refreshing for current show...")
+                log("Queue complete, refreshing...")
 
         if running:
             log("Encoder died, restarting...")
             time.sleep(2)
 
     log("=== Stream stopped ===")
+
+
+def _extract_segment_type(filepath: Path) -> str:
+    """Extract segment type from filename."""
+    name = filepath.name.lower()
+    types = [
+        "listener_response",  # Priority: real listener messages
+        "deep_dive", "news_analysis", "interview", "panel", "story",
+        "listener_mailbag", "music_essay", "station_id", "show_intro", "show_outro",
+        # Legacy
+        "long_talk", "monologue", "late_night", "music_history",
+        "dedication", "weather", "news", "poetry",
+    ]
+    for t in types:
+        if t in name:
+            return t
+    return "talk"
 
 
 if __name__ == "__main__":

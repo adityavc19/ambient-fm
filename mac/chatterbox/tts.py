@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Chatterbox TTS Module
+WRIT-FM Chatterbox TTS Module
 
 Renders text to speech using Chatterbox TTS with voice cloning.
 This module is self-contained - just needs the venv set up once.

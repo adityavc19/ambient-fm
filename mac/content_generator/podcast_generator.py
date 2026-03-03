@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Podcast Generator
+WRIT-FM Podcast Generator
 
 Generates long-form podcast episodes (5-15 minutes) using Claude for scripts
 and Chatterbox for TTS. Podcasts play every 3 hours at scheduled times.
@@ -108,7 +108,7 @@ def generate_podcast_script(topic: str, target_minutes: int) -> str | None:
     # Estimate word count: ~130 words/minute for deliberate radio speech
     target_words = target_minutes * 130
 
-    prompt = f"""You are The Liminal Operator, host of WVOID-FM's podcast segments.
+    prompt = f"""You are The Liminal Operator, host of WRIT-FM's podcast segments.
 
 Write a {target_minutes}-minute spoken podcast episode (approximately {target_words} words) on:
 
@@ -335,7 +335,7 @@ def generate_podcast(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="WVOID-FM Podcast Generator")
+    parser = argparse.ArgumentParser(description="WRIT-FM Podcast Generator")
     parser.add_argument("--count", type=int, default=1, help="Number of podcasts to generate")
     parser.add_argument("--topic", type=str, help="Specific topic (default: random)")
     parser.add_argument("--minutes", type=int, default=8, help="Target duration in minutes (default: 8)")

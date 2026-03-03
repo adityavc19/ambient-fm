@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Shared helpers for WVOID-FM content generators.
+Shared helpers for WRIT-FM content generators.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ DEFAULT_NEWS_FEEDS = (
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://feeds.npr.org/1001/rss.xml",
 )
-NEWS_CACHE_TTL_SECONDS = int(os.environ.get("WVOID_NEWS_CACHE_TTL", "600"))
-NEWS_TIMEOUT_SECONDS = int(os.environ.get("WVOID_NEWS_TIMEOUT", "6"))
+NEWS_CACHE_TTL_SECONDS = int(os.environ.get("WRIT_NEWS_CACHE_TTL", "600"))
+NEWS_TIMEOUT_SECONDS = int(os.environ.get("WRIT_NEWS_TIMEOUT", "6"))
 
 _NEWS_CACHE: dict[str, object] = {"timestamp": 0.0, "items": []}
 
@@ -156,8 +156,8 @@ def fetch_headlines(max_items: int | None = None) -> list[dict]:
     if cached_items and now - float(_NEWS_CACHE.get("timestamp", 0.0)) < NEWS_CACHE_TTL_SECONDS:
         return list(cached_items)
 
-    max_items = max_items or int(os.environ.get("WVOID_NEWS_MAX_ITEMS", "8"))
-    feed_env = os.environ.get("WVOID_NEWS_FEEDS")
+    max_items = max_items or int(os.environ.get("WRIT_NEWS_MAX_ITEMS", "8"))
+    feed_env = os.environ.get("WRIT_NEWS_FEEDS")
     feeds = [f.strip() for f in feed_env.split(",")] if feed_env else list(DEFAULT_NEWS_FEEDS)
     feeds = [f for f in feeds if f]
 

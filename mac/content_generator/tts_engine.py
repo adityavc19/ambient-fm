@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Unified TTS Module
+WRIT-FM Unified TTS Module
 
 Provides a common interface for TTS with multiple backends:
 - chatterbox: Voice cloning, slower, uses reference audio
@@ -16,7 +16,7 @@ Usage:
     render_speech("Hello", Path("out.wav"), backend="kokoro", voice="am_michael")
 
 Environment:
-    WVOID_TTS_BACKEND: "chatterbox" (default) or "kokoro"
+    WRIT_TTS_BACKEND: "chatterbox" (default) or "kokoro"
 """
 
 import os
@@ -28,7 +28,7 @@ CHATTERBOX_DIR = PROJECT_ROOT / "mac" / "chatterbox"
 KOKORO_DIR = PROJECT_ROOT / "mac" / "kokoro"
 
 # Default backend from environment or chatterbox
-DEFAULT_BACKEND = os.environ.get("WVOID_TTS_BACKEND", "chatterbox")
+DEFAULT_BACKEND = os.environ.get("WRIT_TTS_BACKEND", "chatterbox")
 
 
 def render_speech(
@@ -105,7 +105,7 @@ KOKORO_VOICES = {
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="WVOID TTS")
+    parser = argparse.ArgumentParser(description="WRIT TTS")
     parser.add_argument("text", help="Text to speak")
     parser.add_argument("-o", "--output", default="test.wav", help="Output file")
     parser.add_argument("-b", "--backend", default=DEFAULT_BACKEND, choices=["chatterbox", "kokoro"])

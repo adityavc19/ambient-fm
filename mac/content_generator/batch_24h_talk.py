@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # Force Kokoro backend
-os.environ["WVOID_TTS_BACKEND"] = "kokoro"
+os.environ["WRIT_TTS_BACKEND"] = "kokoro"
 
 from helpers import log, preprocess_for_tts, run_claude
 from tts_engine import render_speech
@@ -50,7 +50,7 @@ def get_time_period(hour: int) -> dict:
 SEGMENT_TYPES = {
     "station_id": {
         "duration": (15, 30),
-        "prompt": """Write a 15-30 word station ID for WVOID-FM.
+        "prompt": """Write a 15-30 word station ID for WRIT-FM.
 Time: {time}. Mood: {mood}.
 Reference the frequency between frequencies, the liminal space of radio.""",
     },

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Headless DJ Generator
+WRIT-FM Headless DJ Generator
 
 Generates DJ segments using Claude for scripts and Chatterbox for TTS.
 
@@ -225,7 +225,7 @@ def run_batch(count: int, voice_ref: Path | None, segment_type: str | None = Non
 
 def run_daemon(voice_ref: Path | None, interval_minutes: int):
     """Run continuously, generating segments periodically."""
-    log(f"=== WVOID-FM Daemon Mode ===")
+    log(f"=== WRIT-FM Daemon Mode ===")
     log(f"Generating segment every {interval_minutes} minutes")
 
     segment_count = 0
@@ -244,7 +244,7 @@ def run_daemon(voice_ref: Path | None, interval_minutes: int):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="WVOID-FM DJ Segment Generator")
+    parser = argparse.ArgumentParser(description="WRIT-FM DJ Segment Generator")
     parser.add_argument("--count", type=int, default=10, help="Number of segments")
     parser.add_argument("--voice", type=Path, help="Voice reference file")
     parser.add_argument(

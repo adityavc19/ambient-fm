@@ -1,6 +1,6 @@
-# WVOID-FM Operator Session
+# WRIT-FM Operator Session
 
-You are the operator for WVOID-FM, a 24/7 internet radio station. This is a recurring maintenance session.
+You are the operator for WRIT-FM, a 24/7 talk-first internet radio station. This is a recurring maintenance session.
 
 ## Project Location
 Run from the project root directory (where this file lives in `mac/`).
@@ -21,112 +21,152 @@ lsof -i :8000 | grep ffmpeg || echo "ENCODER DOWN"
 
 If any component is down:
 - Icecast: `pkill icecast; icecast -c /opt/homebrew/etc/icecast.xml -b`
-- Streamer: `pkill -f stream_gapless; tmux send-keys -t wvoid "uv run python mac/stream_gapless.py" Enter`
-- If wvoid tmux doesn't exist: `tmux new-session -d -s wvoid` then send commands to it
+- Streamer: `pkill -f stream_gapless; tmux send-keys -t writ "uv run python mac/stream_gapless.py" Enter`
+- music-gen.server: `bash mac/start_music_gen.sh server`
+- Bumper daemon: `bash mac/start_music_gen.sh daemon`
+- Both at once: `bash mac/start_music_gen.sh`
+- If writ tmux doesn't exist: `tmux new-session -d -s writ` then send commands to it
+
+Check music-gen.server specifically:
+```bash
+curl -sf http://localhost:4009/health && echo "music-gen: UP" || echo "music-gen: DOWN"
+```
 
 ### 2. Check Current Show
 ```bash
 uv run python mac/schedule.py now
 ```
-This tells you which show is active based on `config/schedule.yaml`. The schedule has 15 shows with different music profiles and voices.
+This tells you which show is active, who's hosting, and the topic focus.
 
-### 3. Generate Fresh Segments
-Check segment count by period:
+### 3. Generate AI Music Bumpers
+Check bumper count per show:
 ```bash
-for period in late_night morning afternoon evening; do
-  echo "$period: $(ls output/segments/$period/*.wav 2>/dev/null | wc -l) segments"
-done
+cd mac/content_generator && uv run python music_bumper_generator.py --status
 ```
 
-If any period has under 10 segments, generate more using Gemini + Kokoro:
+If any show has fewer than 5 bumpers **and music-gen.server is running at localhost:4009**, generate more:
 ```bash
-cd mac/content_generator && uv run python batch_schedule_generator.py --period [PERIOD] --count 5
+cd mac/content_generator && uv run python music_bumper_generator.py --all --min 5
 ```
 
-Or generate for all periods:
+Or for a specific show:
 ```bash
-cd mac/content_generator && uv run python batch_schedule_generator.py --count 3
+cd mac/content_generator && uv run python music_bumper_generator.py --show midnight_signal --count 3
+```
+
+Note: music-gen.server must be running separately. If it's not available, skip this step — the streamer falls back to local music automatically. Bumpers are saved to `output/music_bumpers/{show_id}/`.
+
+### 4. Generate Talk Segments
+Check segment count per show:
+```bash
+cd mac/content_generator && uv run python talk_generator.py --status
+```
+
+If any show has fewer than 6 segments, generate more:
+```bash
+cd mac/content_generator && uv run python talk_generator.py --show [SHOW_ID] --count 3
+```
+
+Or generate for all shows:
+```bash
+cd mac/content_generator && uv run python talk_generator.py --all --count 2
 ```
 
 The generator uses:
-- `gemini -p` for script generation (preserves your context)
-- Kokoro TTS with show-appropriate voices (am_michael, am_fenrir, bf_emma, etc.)
-- Schedule-aware prompts based on time period and show context
+- `claude -p` for script generation (long-form talk content)
+- Kokoro TTS with show-appropriate voices
+- Schedule-aware prompts based on host persona and show context
 
-### 4. Process Listener Messages
+### 5. Process Listener Messages
 ```bash
-cat ~/.wvoid/messages.json 2>/dev/null | jq '.[] | select(.read == false)' || echo "No messages file"
+cat ~/.writ/messages.json 2>/dev/null | jq '.[] | select(.read == false)' || echo "No messages file"
 ```
 For each unread message:
 1. Note the message content
-2. Generate a dedication segment:
+2. Generate a listener_mailbag segment for the appropriate show:
    ```bash
-   cd mac/content_generator && uv run python batch_schedule_generator.py --period [current_period] --count 1
+   cd mac/content_generator && uv run python talk_generator.py --show listener_hours --type listener_mailbag --count 1
    ```
 3. Mark as read by updating the JSON
 
-### 5. Review Streamer Status
+### 6. Review Streamer Status
 ```bash
-tmux capture-pane -t wvoid -p | tail -20
+tmux capture-pane -t writ -p | tail -20
 ```
 Check for:
 - Pipe failures or encoder restarts
-- Current show displayed correctly
-- Tracks playing from appropriate energy range
+- Current show and host displayed correctly
+- Talk segments playing with music bumpers between them
+- Fallback music mode (means that show needs more talk segments!)
 
-### 6. Log Status
+### 7. Log Status
 Append to daily log:
 ```bash
 LOGFILE="output/operator_$(date +%Y-%m-%d).log"
 echo "" >> "$LOGFILE"
-echo "## WVOID-FM $(date +%H:%M)" >> "$LOGFILE"
-echo "- Show: $(uv run python mac/schedule.py now 2>/dev/null | tail -1)" >> "$LOGFILE"
-echo "- Segments: late_night=$(ls output/segments/late_night/*.wav 2>/dev/null | wc -l), morning=$(ls output/segments/morning/*.wav 2>/dev/null | wc -l), afternoon=$(ls output/segments/afternoon/*.wav 2>/dev/null | wc -l), evening=$(ls output/segments/evening/*.wav 2>/dev/null | wc -l)" >> "$LOGFILE"
+echo "## WRIT-FM $(date +%H:%M)" >> "$LOGFILE"
+echo "- Show: $(uv run python mac/schedule.py now 2>/dev/null | head -1)" >> "$LOGFILE"
 echo "- Encoder: $(lsof -i :8000 | grep ffmpeg > /dev/null && echo 'connected' || echo 'DOWN')" >> "$LOGFILE"
+cd mac/content_generator && uv run python talk_generator.py --status 2>/dev/null >> "$LOGFILE"
 ```
 
 ## Key Files
-- `mac/stream_gapless.py` - Main streamer (schedule-aware)
+- `mac/stream_gapless.py` - Main streamer (talk-first with AI music bumpers)
 - `mac/schedule.py` - Schedule parser and resolver
-- `config/schedule.yaml` - Weekly show schedule (15 shows)
-- `mac/content_generator/batch_schedule_generator.py` - Segment generator (Gemini + Kokoro)
-- `mac/content_generator/persona.py` - Operator persona and prompts
-- `output/segments/[period]/` - Generated segments by time period
+- `config/schedule.yaml` - Weekly show schedule (8 talk shows)
+- `mac/content_generator/talk_generator.py` - Talk segment generator (Claude + Kokoro)
+- `mac/content_generator/persona.py` - Multi-host persona system
+- `mac/content_generator/music_bumper_generator.py` - AI music bumper generator (ACE-Step)
+- `mac/music_gen_client.py` - REST client for music-gen.server
+- `output/talk_segments/[show_id]/` - Generated talk segments per show
+- `output/music_bumpers/[show_id]/` - Pre-generated AI music bumpers per show
 
 ## Schedule Overview
-The station runs different shows based on time and day:
+The station runs different talk shows based on time and day:
 
 **Base Schedule (daily):**
-- 00:00-06:00: Overnight Drift (low energy, ambient)
-- 06:00-10:00: Sunrise Drift (gentle wakeup)
-- 10:00-14:00: Midday Mosaic (varied, moderate)
-- 14:00-15:00: Talk Hour (longer segments, podcasts)
-- 15:00-18:00: Peak Signal (higher energy)
-- 18:00-21:00: Golden Hour (warm, transitional)
-- 21:00-00:00: Night Transmission (downtempo, contemplative)
+- 00:00-04:00: Midnight Signal (Liminal Operator - philosophy)
+- 04:00-06:00: The Night Garden (Nyx - dreams/night)
+- 06:00-09:00: Dawn Chorus (Liminal Operator - morning reflections)
+- 09:00-12:00: Sonic Archaeology (Dr. Resonance - music history)
+- 12:00-14:00: Signal Report (Signal - news analysis)
+- 14:00-16:00: The Groove Lab (Ember - soul/funk)
+- 16:00-18:00: Crosswire (panel/debate format)
+- 18:00-20:00: Sonic Archaeology (Dr. Resonance - music history)
+- 20:00-22:00: The Groove Lab (Ember - soul/funk)
+- 22:00-00:00: The Night Garden (Nyx - dreams/night)
 
-**Weekly Overrides:**
-- Thu 21:00-00:00: Jazz Archives
-- Fri 22:00-02:00: Electric Drift
-- Sat 00:00-04:00: Club Liminal
-- Sat 15:00-18:00: Saturday Soul Service
-- Sun 10:00-14:00: Slow Sunday
-- Sun 19:00-21:00: Listener Mailbag
+**Weekly Override:**
+- Sun 18:00-20:00: Listener Hours (mailbag)
 
-## Voice Mapping
-Different shows use different Kokoro voices:
-- overnight_drift, sunrise_drift, talk_hour: `am_michael` (warm baritone)
-- jazz_archives, memory_lane: `bm_daniel` (British male)
-- golden_hour, world_circuit, saturday_soul_service: `af_heart` (warm female)
-- electric_drift, club_liminal: `am_fenrir` (deep electronic)
-- slow_sunday: `bf_emma` (British female)
-- night_transmission: `am_onyx` (deep night voice)
+## Hosts & Voices
+- **The Liminal Operator** (`am_michael`): Overnight philosophy, morning reflections
+- **Dr. Resonance** (`bm_daniel`): Music history, genre archaeology
+- **Nyx** (`af_heart`): Nocturnal voice, dreams, night philosophy
+- **Signal** (`am_onyx`): News analysis, current events
+- **Ember** (`af_bella`): Soul, warmth, groove, music as feeling
+
+## Segment Types
+Long-form (primary content):
+- `deep_dive` - Extended single-topic exploration (1500-2500 words)
+- `news_analysis` - Current events analysis (uses RSS headlines)
+- `interview` - Simulated interview with historical/fictional figure
+- `panel` - Two hosts discuss topic from different angles
+- `story` - Narrative storytelling
+- `listener_mailbag` - Listener letters + responses
+- `music_essay` - Extended essay on artist/album/genre
+
+Short-form (transitions):
+- `station_id`, `show_intro`, `show_outro`
 
 ## Notes
 - Don't restart the streamer unless it's actually down
-- Segments are organized by period (late_night, morning, afternoon, evening)
-- The streamer auto-selects segments matching the current time period
-- Gemini CLI (`gemini -p`) is used for script generation to preserve your context
-- Keep segment counts balanced across periods (aim for 10-20 each)
-- Late night = more contemplative, longer segments
-- Daytime = shorter station IDs, music history
+- Talk segments are organized by show ID in `output/talk_segments/`
+- The streamer plays talk segments then deletes them after playing
+- AI music bumpers (70-110s) play between talk segments — fully AI generated via ACE-Step
+- If no AI bumpers available, streamer falls back to local music library automatically
+- If a show has no talk segments, streamer falls back to music-only mode
+- Keep each show stocked with at least 6 talk segments
+- Keep each show stocked with at least 5 AI music bumpers
+- Priority: generate for shows with the fewest segments first
+- music-gen.server runs separately — start it before generating bumpers

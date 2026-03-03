@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Kokoro TTS Module
+WRIT-FM Kokoro TTS Module
 
 Fast, high-quality TTS using Kokoro. No voice cloning but very fast generation.
 Good for parallel batch generation.

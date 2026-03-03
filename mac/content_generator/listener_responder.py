@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Listener Message Responder
+WRIT-FM Listener Message Responder
 
 Generates personalized DJ segments responding to listener messages.
 """
@@ -52,7 +52,7 @@ Write a 30-60 word on-air acknowledgment/response.
 GUIDELINES FOR LISTENER RESPONSES:
 - Acknowledge them warmly but don't be saccharine
 - If it's a song request: acknowledge the taste, say you'll see what you can do
-  (WVOID doesn't take specific requests, but the sentiment matters)
+  (WRIT doesn't take specific requests, but the sentiment matters)
 - If it's a greeting or thank you: respond in kind with the station's contemplative vibe
 - If it's playful/silly: be playfully cryptic back. Dry humor is welcome.
 - If they're sharing something personal: honor it. Don't over-comfort, just acknowledge.

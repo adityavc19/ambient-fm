@@ -1,2 +1,2 @@
-# WVOID-FM Content Generator
+# WRIT-FM Content Generator
 # Mac-side tools for generating DJ segments

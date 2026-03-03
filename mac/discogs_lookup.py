@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Discogs lookup module for WVOID-FM.
+Discogs lookup module for WRIT-FM.
 
 Searches Discogs for track info and generates QR codes linking to release pages.
 Uses caching to respect rate limits (60/min authenticated).
@@ -11,7 +11,7 @@ The Discogs search API requires authentication. You need to:
 2. Go to https://www.discogs.com/settings/developers
 3. Generate a personal access token
 4. Set the DISCOGS_TOKEN environment variable
-   or store the token in ~/.wvoid/discogs_token
+   or store the token in ~/.writ/discogs_token
 
 Alternatively, create a Discogs Application to get a key/secret pair:
 - Set DISCOGS_KEY and DISCOGS_SECRET environment variables
@@ -33,15 +33,15 @@ from typing import Optional
 # Rate limiting: 60 authenticated requests per minute
 # We'll cache aggressively and be conservative
 CACHE_TTL_SECONDS = 3600  # Cache hits for 1 hour
-CACHE_FILE = Path.home() / ".wvoid" / "discogs_cache.json"
+CACHE_FILE = Path.home() / ".writ" / "discogs_cache.json"
 REQUEST_DELAY = 2.5  # Seconds between requests (conservative)
 
 # Discogs API credentials - REQUIRED for search endpoint
-DISCOGS_TOKEN_PATH = Path.home() / ".wvoid" / "discogs_token"
+DISCOGS_TOKEN_PATH = Path.home() / ".writ" / "discogs_token"
 
 
 def _load_discogs_token() -> Optional[str]:
-    """Load a Discogs token from ~/.wvoid/discogs_token."""
+    """Load a Discogs token from ~/.writ/discogs_token."""
     try:
         return DISCOGS_TOKEN_PATH.read_text().strip() or None
     except OSError:
@@ -51,7 +51,7 @@ def _load_discogs_token() -> Optional[str]:
 DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN") or _load_discogs_token()
 DISCOGS_KEY = os.environ.get("DISCOGS_KEY")
 DISCOGS_SECRET = os.environ.get("DISCOGS_SECRET")
-DISCOGS_USER_AGENT = "WVOID-FM/1.0 +https://radio.khaledeltokhy.com"
+DISCOGS_USER_AGENT = "WRIT-FM/1.0 +https://radio.khaledeltokhy.com"
 
 # Check if we have valid credentials
 HAS_CREDENTIALS = bool(DISCOGS_TOKEN or (DISCOGS_KEY and DISCOGS_SECRET))

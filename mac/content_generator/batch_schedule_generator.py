@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Scheduled Content Batch Generator
+WRIT-FM Scheduled Content Batch Generator
 
 Generates content for all time periods using Gemini CLI for scripts and Kokoro TTS.
 Uses the weekly schedule to determine which show's voice and content style to use.
@@ -101,7 +101,7 @@ PERIOD_SEGMENTS = {
 
 # Segment prompts for Gemini
 SEGMENT_PROMPTS = {
-    "station_id": """Write a 10-20 word station ID for WVOID-FM.
+    "station_id": """Write a 10-20 word station ID for WRIT-FM.
 Be cryptic but warm. Reference the frequency, the signal, the persistence of broadcasting.
 Output ONLY the spoken text. No quotes, headers, or explanations.""",
 
@@ -166,7 +166,7 @@ CURRENT SHOW: {show.name}
 Show Description: {show.description}
 """
 
-    persona = f"""You are The Liminal Operator, the voice of WVOID-FM.
+    persona = f"""You are The Liminal Operator, the voice of WRIT-FM.
 
 {OPERATOR_IDENTITY.strip()}
 
@@ -423,7 +423,7 @@ def generate_for_show(
 
 def generate_all(schedule: StationSchedule, count_per_period: int = 5) -> dict:
     """Generate content for all time periods."""
-    log("=== WVOID-FM Full Schedule Content Generation ===")
+    log("=== WRIT-FM Full Schedule Content Generation ===")
     log(f"Generating {count_per_period} segments per period")
 
     results = {}
@@ -439,7 +439,7 @@ def generate_all(schedule: StationSchedule, count_per_period: int = 5) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="WVOID-FM Scheduled Content Generator")
+    parser = argparse.ArgumentParser(description="WRIT-FM Scheduled Content Generator")
     parser.add_argument("--period", choices=["late_night", "morning", "afternoon", "evening"])
     parser.add_argument("--show", help="Show ID to generate for")
     parser.add_argument("--count", type=int, default=5, help="Segments per period/show")

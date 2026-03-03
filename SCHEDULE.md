@@ -1,4 +1,4 @@
-# Weekly Program Schedule (WVOID-FM)
+# Weekly Program Schedule (WRIT-FM)
 
 All times are local, 24-hour. The base clock runs daily; weekly shows override it.
 

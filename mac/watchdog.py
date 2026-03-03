@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Watchdog
+WRIT-FM Watchdog
 Monitors all radio components and auto-restarts on failure.
 Sends Pushover alerts when things go wrong.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 # Configuration
 CHECK_INTERVAL = 30  # seconds
 MAX_RETRIES = 3
-LOG_FILE = Path("/tmp/wvoid_watchdog.log")
+LOG_FILE = Path("/tmp/writ_watchdog.log")
 
 # Pushover credentials (from environment)
 PUSHOVER_USER = os.environ.get("PUSHOVER_USER", "")
@@ -39,7 +39,7 @@ COMPONENTS = {
     "tunnel": {
         "check_url": None,
         "process_name": "cloudflared",
-        "start_cmd": ["cloudflared", "tunnel", "run", "wvoid-radio"],
+        "start_cmd": ["cloudflared", "tunnel", "run", "writ-radio"],
         "critical": True,
     },
     "api": {
@@ -170,7 +170,7 @@ def handle_failure(name: str, config: dict):
     if now - last_alert_time[name] > ALERT_COOLDOWN:
         priority = 1 if config["critical"] else 0
         send_pushover(
-            f"WVOID-FM: {name} DOWN",
+            f"WRIT-FM: {name} DOWN",
             f"{name} has failed after {MAX_RETRIES} restart attempts. "
             f"Manual intervention may be required.",
             priority=priority,
@@ -187,7 +187,7 @@ def handle_recovery(name: str):
         # Send recovery notification if we previously alerted
         if last_alert_time[name] > 0:
             send_pushover(
-                f"WVOID-FM: {name} RECOVERED",
+                f"WRIT-FM: {name} RECOVERED",
                 f"{name} is back online.",
                 priority=-1,  # Low priority for recovery
             )
@@ -216,7 +216,7 @@ def run_checks():
 def main():
     """Main watchdog loop."""
     log("=" * 50)
-    log("WVOID-FM Watchdog starting")
+    log("WRIT-FM Watchdog starting")
     log(f"Monitoring: {', '.join(COMPONENTS.keys())}")
     log(f"Check interval: {CHECK_INTERVAL}s")
     log(f"Pushover configured: {'Yes' if PUSHOVER_USER else 'No'}")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Now Playing API
+WRIT-FM Now Playing API
 
 Simple HTTP server that exposes the current track info.
 Reads from the now_playing.json file written by the streamer.
@@ -44,15 +44,15 @@ _discogs_last_track: str | None = None
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_NOW_PLAYING_FILE = PROJECT_ROOT / "output" / "now_playing.json"
-MESSAGES_FILE = Path.home() / ".wvoid" / "messages.json"
+MESSAGES_FILE = Path.home() / ".writ" / "messages.json"
 
 # Rate limiting for messages
 MESSAGE_COOLDOWN = 300  # 5 minutes between messages per IP
 last_message_times: dict[str, float] = {}
 
-PORT = int(os.environ.get("WVOID_NOW_PLAYING_PORT", "8001"))
+PORT = int(os.environ.get("WRIT_NOW_PLAYING_PORT", "8001"))
 NOW_PLAYING_FILE = Path(
-    os.environ.get("WVOID_NOW_PLAYING_FILE", str(DEFAULT_NOW_PLAYING_FILE))
+    os.environ.get("WRIT_NOW_PLAYING_FILE", str(DEFAULT_NOW_PLAYING_FILE))
 ).expanduser()
 ICECAST_STATUS_URL = os.environ.get(
     "ICECAST_STATUS_URL",
@@ -90,6 +90,8 @@ class NowPlayingHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(get_health_status())
         elif path == "/stats":
             self._send_json(get_stats())
+        elif path == "/schedule":
+            self._send_json(get_schedule_info())
         elif path.startswith("/history"):
             self._send_json(get_play_history())
         elif path == "/messages":
@@ -314,6 +316,50 @@ def get_now_playing() -> dict:
     return data
 
 
+def get_schedule_info() -> dict:
+    """Get current and upcoming show schedule."""
+    try:
+        from schedule import load_schedule
+        schedule_path = PROJECT_ROOT / "config" / "schedule.yaml"
+        schedule = load_schedule(schedule_path)
+        now = datetime.now()
+        current = schedule.resolve(now)
+
+        # Find upcoming shows (next 4 hours)
+        upcoming = []
+        for minutes_ahead in range(30, 241, 30):
+            from datetime import timedelta
+            future = now + timedelta(minutes=minutes_ahead)
+            try:
+                future_show = schedule.resolve(future)
+                if not upcoming or upcoming[-1]["show_id"] != future_show.show_id:
+                    upcoming.append({
+                        "show_id": future_show.show_id,
+                        "name": future_show.name,
+                        "host": future_show.host,
+                        "topic_focus": future_show.topic_focus,
+                        "starts_around": future.strftime("%H:%M"),
+                    })
+            except Exception:
+                pass
+
+        return {
+            "current": {
+                "show_id": current.show_id,
+                "name": current.name,
+                "description": current.description,
+                "host": current.host,
+                "topic_focus": current.topic_focus,
+                "segment_types": current.segment_types,
+                "bumper_style": current.bumper_style,
+            },
+            "upcoming": upcoming[:4],
+            "timestamp": now.isoformat(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _qr_data_url_for(discogs_data: dict | None) -> str | None:
     if not QR_ENABLED or not discogs_data or not discogs_data.get("url"):
         return None
@@ -324,9 +370,26 @@ def get_discogs_info() -> dict:
     """Get Discogs info for the currently playing track.
 
     Returns a dict with Discogs release info, or an error/status message.
+    For AI-generated bumpers, returns the generation metadata instead.
     Caches results to avoid repeated API calls for the same track.
     """
     global _discogs_cache, _discogs_last_track
+
+    # Get current track
+    now_playing = get_now_playing()
+    track_name = now_playing.get("track")
+    track_type = now_playing.get("type")
+
+    # AI-generated bumper: return generation metadata instead of Discogs
+    if track_type == "bumper" and now_playing.get("ai_generated"):
+        return {
+            "enabled": True,
+            "ai_generated": True,
+            "track": track_name,
+            "caption": now_playing.get("caption"),
+            "model": "ACE-Step (music-gen.server)",
+            "show": now_playing.get("show"),
+        }
 
     if not DISCOGS_ENABLED:
         return {"enabled": False, "message": "Discogs lookup not available"}
@@ -338,10 +401,6 @@ def get_discogs_info() -> dict:
             "setup": "Set DISCOGS_TOKEN env var. Get token at https://www.discogs.com/settings/developers"
         }
 
-    # Get current track
-    now_playing = get_now_playing()
-    track_name = now_playing.get("track")
-    track_type = now_playing.get("type")
     vibe = now_playing.get("vibe")
 
     # Only look up music tracks, not segments or podcasts
@@ -419,7 +478,8 @@ class ReusableTCPServer(socketserver.TCPServer):
 def run():
     with ReusableTCPServer(("", PORT), NowPlayingHandler) as httpd:
         print(f"Now Playing API running on http://localhost:{PORT}/now-playing")
-        print(f"  /discogs  - Current track's Discogs info")
+        print(f"  /schedule - Current and upcoming shows")
+        print(f"  /discogs  - Current track's Discogs info (bumpers only)")
         print(f"  /qr       - QR code for Discogs page (PNG)")
         if DISCOGS_ENABLED:
             if DISCOGS_HAS_CREDS:

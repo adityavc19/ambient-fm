@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Weekly Scheduling
+WRIT-FM Weekly Scheduling
 
 Loads `config/schedule.yaml` and resolves the currently-active show based on:
 - day of week (mon..sun)
 - local time (HH:MM)
 
 The streamer can use this to:
-- pick a music profile (energy/warmth/vibes)
-- set talk frequency (segment_after_tracks)
-- enable/disable podcasts per-show
+- pick the host persona and topic focus
+- determine segment types for the show
+- select bumper music style for breaks
 """
 
 from __future__ import annotations
@@ -26,6 +26,12 @@ import yaml
 DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DAY_TO_INDEX = {k: i for i, k in enumerate(DAY_KEYS)}
 INDEX_TO_DAY = {i: k for k, i in DAY_TO_INDEX.items()}
+
+VALID_SEGMENT_TYPES = {
+    "deep_dive", "news_analysis", "interview", "panel", "story",
+    "listener_mailbag", "listener_response", "music_essay",
+    "station_id", "show_intro", "show_outro",
+}
 
 
 class ScheduleError(RuntimeError):
@@ -105,32 +111,15 @@ class Show:
     show_id: str
     name: str
     description: str
-    segment_after_tracks: int = 1
-    podcasts_enabled: bool = True
-    music: dict[str, Any] = field(default_factory=dict)
+    host: str = "liminal_operator"
+    topic_focus: str = ""
+    segment_types: list[str] = field(default_factory=lambda: ["deep_dive"])
+    bumper_style: str = "ambient"
     voices: dict[str, str] = field(default_factory=dict)
-
-    def stream_profile(self) -> dict[str, Any]:
-        energy_range = self.music.get("energy_range")
-        prefer_warmth = self.music.get("prefer_warmth")
-        vibes = self.music.get("vibes")
-        if (
-            not isinstance(energy_range, list)
-            or len(energy_range) != 2
-            or not all(isinstance(x, (int, float)) for x in energy_range)
-        ):
-            raise ScheduleError(f"Show {self.show_id}: invalid music.energy_range")
-        if not isinstance(prefer_warmth, (int, float)):
-            raise ScheduleError(f"Show {self.show_id}: invalid music.prefer_warmth")
-        if not isinstance(vibes, list) or not all(isinstance(v, str) for v in vibes):
-            raise ScheduleError(f"Show {self.show_id}: invalid music.vibes")
-        return {
-            "name": self.name,
-            "description": self.description,
-            "energy_range": (float(energy_range[0]), float(energy_range[1])),
-            "prefer_warmth": float(prefer_warmth),
-            "vibes": [v.strip() for v in vibes if v.strip()],
-        }
+    # Legacy fields (optional, unused in talk-first mode)
+    segment_after_tracks: int = 1
+    podcasts_enabled: bool = False
+    music: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -169,11 +158,16 @@ class ResolvedShow:
     show_id: str
     name: str
     description: str
-    segment_after_tracks: int
-    podcasts_enabled: bool
-    podcast_hours: set[int]
-    music_profile: dict[str, Any]
+    host: str
+    topic_focus: str
+    segment_types: list[str]
+    bumper_style: str
     voices: dict[str, str]
+    # Legacy (kept for backward compat)
+    segment_after_tracks: int = 1
+    podcasts_enabled: bool = False
+    podcast_hours: set[int] = field(default_factory=set)
+    music_profile: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -181,7 +175,7 @@ class StationSchedule:
     shows: dict[str, Show]
     base: list[ScheduleBlock]
     overrides: list[ScheduleBlock]
-    podcast_hours: set[int]
+    podcast_hours: set[int] = field(default_factory=set)
 
     def validate(self) -> None:
         if not self.base:
@@ -213,16 +207,17 @@ class StationSchedule:
             if block.show_id not in self.shows:
                 raise ScheduleError(f"Schedule references unknown show: {block.show_id!r}")
 
-        # Podcasts hours valid
-        for h in self.podcast_hours:
-            if h < 0 or h > 23:
-                raise ScheduleError(f"podcasts.hours contains invalid hour: {h}")
-
-        # Show config sanity
+        # Validate show configs
         for show in self.shows.values():
-            if show.segment_after_tracks < 1:
-                raise ScheduleError(f"Show {show.show_id}: segment_after_tracks must be >= 1")
-            _ = show.stream_profile()  # validates music profile
+            if show.host:
+                # Validate host exists in persona system (soft check - just verify non-empty)
+                pass
+            for st in show.segment_types:
+                if st not in VALID_SEGMENT_TYPES:
+                    raise ScheduleError(
+                        f"Show {show.show_id}: unknown segment type {st!r}. "
+                        f"Valid: {sorted(VALID_SEGMENT_TYPES)}"
+                    )
 
     def resolve(self, now: datetime | None = None) -> ResolvedShow:
         now = now or datetime.now()
@@ -234,10 +229,10 @@ class StationSchedule:
                     show_id=show.show_id,
                     name=show.name,
                     description=show.description,
-                    segment_after_tracks=show.segment_after_tracks,
-                    podcasts_enabled=show.podcasts_enabled,
-                    podcast_hours=set(self.podcast_hours),
-                    music_profile=show.stream_profile(),
+                    host=show.host,
+                    topic_focus=show.topic_focus,
+                    segment_types=list(show.segment_types),
+                    bumper_style=show.bumper_style,
                     voices=dict(show.voices),
                 )
 
@@ -248,10 +243,10 @@ class StationSchedule:
                     show_id=show.show_id,
                     name=show.name,
                     description=show.description,
-                    segment_after_tracks=show.segment_after_tracks,
-                    podcasts_enabled=show.podcasts_enabled,
-                    podcast_hours=set(self.podcast_hours),
-                    music_profile=show.stream_profile(),
+                    host=show.host,
+                    topic_focus=show.topic_focus,
+                    segment_types=list(show.segment_types),
+                    bumper_style=show.bumper_style,
                     voices=dict(show.voices),
                 )
 
@@ -283,20 +278,39 @@ def load_schedule(path: Path) -> StationSchedule:
         description = str(cfg.get("description", "")).strip()
         if not name or not description:
             raise ScheduleError(f"Show {show_id}: missing name/description")
-        segment_after_tracks = int(cfg.get("segment_after_tracks", 1))
-        podcasts_enabled = bool(cfg.get("podcasts_enabled", True))
-        music = cfg.get("music") if isinstance(cfg.get("music"), dict) else {}
+
+        # Talk-show fields
+        host = str(cfg.get("host", "liminal_operator")).strip()
+        topic_focus = str(cfg.get("topic_focus", "")).strip()
+        segment_types_raw = cfg.get("segment_types", ["deep_dive"])
+        if not isinstance(segment_types_raw, list):
+            raise ScheduleError(f"Show {show_id}: segment_types must be a list")
+        segment_types = [str(s).strip() for s in segment_types_raw]
+        bumper_style = str(cfg.get("bumper_style", "ambient")).strip()
+
+        # Voice config
         voices = cfg.get("voices") if isinstance(cfg.get("voices"), dict) else {}
+
+        # Legacy fields (optional)
+        segment_after_tracks = int(cfg.get("segment_after_tracks", 1))
+        podcasts_enabled = bool(cfg.get("podcasts_enabled", False))
+        music = cfg.get("music") if isinstance(cfg.get("music"), dict) else {}
+
         shows[show_id] = Show(
             show_id=show_id,
             name=name,
             description=description,
+            host=host,
+            topic_focus=topic_focus,
+            segment_types=segment_types,
+            bumper_style=bumper_style,
+            voices={str(k): str(v) for k, v in voices.items()},
             segment_after_tracks=segment_after_tracks,
             podcasts_enabled=podcasts_enabled,
-            music=dict(music),
-            voices={str(k): str(v) for k, v in voices.items()},
+            music=dict(music) if music else {},
         )
 
+    # Legacy podcasts config (optional)
     podcasts_cfg = payload.get("podcasts") if isinstance(payload.get("podcasts"), dict) else {}
     hours_raw = podcasts_cfg.get("hours", [])
     if hours_raw is None:
@@ -350,7 +364,7 @@ def load_schedule(path: Path) -> StationSchedule:
 def _cli() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="WVOID-FM schedule tools")
+    parser = argparse.ArgumentParser(description="WRIT-FM schedule tools")
     parser.add_argument(
         "--schedule",
         default=str(Path(__file__).resolve().parents[1] / "config" / "schedule.yaml"),
@@ -363,11 +377,18 @@ def _cli() -> int:
     p_now = sub.add_parser("now", help="Print current show")
     p_now.add_argument("--at", help="Override time (YYYY-MM-DD HH:MM)")
 
+    sub.add_parser("shows", help="List all shows")
+
     args = parser.parse_args()
 
     schedule = load_schedule(Path(args.schedule).expanduser())
     if args.cmd == "validate":
         print("OK")
+        return 0
+
+    if args.cmd == "shows":
+        for sid, show in schedule.shows.items():
+            print(f"  {sid:25s} host={show.host:20s} {show.name}")
         return 0
 
     when = datetime.now()
@@ -378,10 +399,13 @@ def _cli() -> int:
             raise ScheduleError(f"Invalid --at format: {exc}") from exc
 
     resolved = schedule.resolve(when)
-    print(f"{INDEX_TO_DAY[when.weekday()]} {when:%H:%M} — {resolved.name} ({resolved.show_id})")
+    print(f"{INDEX_TO_DAY[when.weekday()]} {when:%H:%M} -- {resolved.name} ({resolved.show_id})")
+    print(f"  Host: {resolved.host}")
+    print(f"  Focus: {resolved.topic_focus}")
+    print(f"  Segments: {', '.join(resolved.segment_types)}")
+    print(f"  Bumper: {resolved.bumper_style}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
-

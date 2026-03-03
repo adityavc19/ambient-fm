@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WVOID-FM Dedication Processor
+WRIT-FM Dedication Processor
 
 Reads listener messages and generates on-air dedication segments.
 
@@ -34,7 +34,7 @@ from persona import (
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output" / "segments"
 VOICE_REF_DIR = PROJECT_ROOT / "mac" / "voice_reference"
-MESSAGES_FILE = Path.home() / ".wvoid" / "messages.json"
+MESSAGES_FILE = Path.home() / ".writ" / "messages.json"
 
 
 def load_messages() -> list[dict]:
@@ -183,7 +183,7 @@ def run_daemon(voice_ref: Path | None = None, interval: int = 300):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="WVOID-FM Dedication Processor")
+    parser = argparse.ArgumentParser(description="WRIT-FM Dedication Processor")
     parser.add_argument("--list", action="store_true", help="List pending messages")
     parser.add_argument("--daemon", action="store_true", help="Run continuously")
     parser.add_argument("--interval", type=int, default=300, help="Check interval (seconds)")

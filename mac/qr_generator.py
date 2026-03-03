@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-QR code generator for WVOID-FM.
+QR code generator for WRIT-FM.
 
 Generates QR codes linking to Discogs release pages.
 Uses caching to avoid regenerating QR codes for the same URL.
@@ -20,7 +20,7 @@ except ImportError:
     HAS_QRCODE = False
 
 
-QR_CACHE_DIR = Path.home() / ".wvoid" / "qr_cache"
+QR_CACHE_DIR = Path.home() / ".writ" / "qr_cache"
 QR_SIZE = 200  # pixels
 
 

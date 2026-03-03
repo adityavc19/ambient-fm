@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate New Year's Eve transition content for WVOID-FM.
+Generate New Year's Eve transition content for WRIT-FM.
 Special segments for the midnight transition from 2025 to 2026.
 """
 
@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # Force Kokoro backend for speed
-os.environ["WVOID_TTS_BACKEND"] = "kokoro"
+os.environ["WRIT_TTS_BACKEND"] = "kokoro"
 
 from helpers import log, preprocess_for_tts, run_claude
 from tts_engine import render_speech
@@ -138,7 +138,7 @@ Write only the script. Use [pause] for beats of silence."""
 
 
 def main():
-    log("=== WVOID-FM New Year's Eve Content Generator ===")
+    log("=== WRIT-FM New Year's Eve Content Generator ===")
     log(f"Generating content for the 2025→2026 transition")
 
     segments_created = 0
