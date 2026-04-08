@@ -1,4 +1,3 @@
-# WRIT-FM
 
 A 24/7 AI-powered internet radio station. AI writes the DJ scripts, TTS speaks them, and the stream runs forever.
 
