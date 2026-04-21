@@ -1,0 +1,426 @@
+import { useState, useEffect, useRef } from "react";
+
+const STATIONS = [
+  { name: "Curiosity 1", title: "Mughal trade networks", type: "curiosity", freq: "88.1",
+    pixel: [
+      "00000111100000","00011000011000","00100000000100","01000000000010",
+      "01000000000010","10000001100001","10000011110001","10000001100001",
+      "01000000000010","01000000000010","00100000000100","00011000011000",
+      "00000111100000","00000000000000"
+    ]},
+  { name: "Curiosity 2", title: "Algorithms & belief", type: "curiosity", freq: "92.5",
+    pixel: [
+      "11111111111111","10000000000001","10111111111101","10100000000101",
+      "10101111110101","10101000010101","10101011010101","10101000010101",
+      "10101111110101","10100000000101","10111111111101","10000000000001",
+      "11111111111111","00000000000000"
+    ]},
+  { name: "Music", title: "Slow ambient drift", type: "music", freq: "97.3",
+    pixel: [
+      "00000011000000","00000111100000","00001111110000","00001100110000",
+      "00001100110000","00001100110000","00011100111000","00111100111100",
+      "01111100111110","11111111111111","01111111111110","00111111111100",
+      "00011111111000","00000111100000"
+    ]},
+  { name: "Contemplative", title: "Fragments of meaning", type: "contemplative", freq: "101.7",
+    pixel: [
+      "00100000000000","01100010000000","00100100000000","00101000000000",
+      "00110000000000","00101000000100","01100100001000","00100010010000",
+      "00000001100000","00000010010000","00000100001000","00001000000100",
+      "00010000000010","00100000000001"
+    ]},
+  { name: "Open slot", title: "Your next curiosity", type: "open", freq: "106.5",
+    pixel: [
+      "00000011000000","00000011000000","00000011000000","00000011000000",
+      "00000011000000","00000011000000","11111111111111","11111111111111",
+      "00000011000000","00000011000000","00000011000000","00000011000000",
+      "00000011000000","00000011000000"
+    ]},
+];
+
+const ACCENT = "#D04535";
+const ACCENT_GLOW = "rgba(208,69,53,";
+const CONFIG = {
+  0: ["Go deeper", "Simplify", "Narrow focus", "Broaden out", "Change tone"],
+  1: ["Go deeper", "Simplify", "Narrow focus", "Broaden out", "Change tone"],
+  2: ["More upbeat", "Slower", "Different genre", "Something new"],
+  3: ["More poetry", "More philosophy", "Quieter", "Different tradition"],
+  4: ["Create station"],
+};
+
+const D = {
+  bg: "#161616", surface: "#222222", surfaceHi: "#2A2A2A", surfaceDeep: "#1A1A1A",
+  border: "#333333", borderLight: "#2A2A2A",
+  text: "#E8E6E2", textMid: "#999794", textDim: "#5A5856",
+  dotOuter: "#444444", dotInner: "#383838", dotBg: "#2A2A2A",
+  inset: "inset 0 1px 3px rgba(0,0,0,0.3), inset 0 -1px 1px rgba(255,255,255,0.04)",
+  raised: "0 1px 3px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(255,255,255,0.04)",
+  btnTop: "#2E2E2E", btnBot: "#1E1E1E", btnBorder: "#3A3A3A",
+  btnHighlight: "rgba(255,255,255,0.07)",
+  btnShadow: "0 2px 4px rgba(0,0,0,0.4), 0 1px 1px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)",
+  btnPressed: "0 0px 1px rgba(0,0,0,0.3), inset 0 1px 2px rgba(0,0,0,0.2)",
+  playTop: "#444444", playBot: "#2A2A2A", playBorder: "#4A4A4A",
+  playShadow: "0 3px 8px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+  playHighlight: "rgba(255,255,255,0.1)",
+  dialTrack: "#1A1A1A", dialBorder: "#2A2A2A",
+  dialInset: "inset 0 2px 6px rgba(0,0,0,0.4), inset 0 -1px 2px rgba(255,255,255,0.03)",
+};
+const L = {
+  bg: "#C4C1BA", surface: "#D0CDC6", surfaceHi: "#D8D5CE", surfaceDeep: "#B4B1AA",
+  border: "#AAA7A0", borderLight: "#B8B5AE",
+  text: "#2A2826", textMid: "#5A5856", textDim: "#8A8882",
+  dotOuter: "#9A9790", dotInner: "#6A6762", dotBg: "#BAB7B0",
+  inset: "inset 0 1px 3px rgba(0,0,0,0.1), inset 0 -1px 1px rgba(255,255,255,0.3)",
+  raised: "0 1px 2px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)",
+  btnTop: "#D8D5CE", btnBot: "#B8B5AE", btnBorder: "#A0A09A",
+  btnHighlight: "rgba(255,255,255,0.5)",
+  btnShadow: "0 2px 4px rgba(0,0,0,0.15), 0 1px 1px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.45)",
+  btnPressed: "0 0px 1px rgba(0,0,0,0.15), inset 0 1px 2px rgba(0,0,0,0.1)",
+  playTop: "#A8A5A0", playBot: "#8A8882", playBorder: "#7A7772",
+  playShadow: "0 3px 8px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.35)",
+  playHighlight: "rgba(255,255,255,0.4)",
+  dialTrack: "#B0ADA6", dialBorder: "#A0A09A",
+  dialInset: "inset 0 2px 5px rgba(0,0,0,0.1), inset 0 -1px 2px rgba(255,255,255,0.3)",
+};
+
+function Pixel({ pixels, color, size = 4, glow = false }) {
+  return (
+    <div style={{ display: "inline-flex", flexDirection: "column", gap: 1 }}>
+      {pixels.map((row, y) => (
+        <div key={y} style={{ display: "flex", gap: 1 }}>
+          {row.split("").map((p, x) => (
+            <div key={x} style={{
+              width: size, height: size,
+              background: p === "1" ? color : "transparent",
+              borderRadius: size > 6 ? 1 : 0.5,
+              boxShadow: p === "1" && glow ? `0 0 ${size * 0.7}px ${ACCENT_GLOW}0.2)` : "none",
+            }} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HWBtn({ children, t, onClick, size = 44 }) {
+  const [p, setP] = useState(false);
+  return (
+    <div onClick={onClick}
+      onMouseDown={() => setP(true)} onMouseUp={() => setP(false)} onMouseLeave={() => setP(false)}
+      style={{
+        width: size, height: size, borderRadius: size * 0.3,
+        background: `linear-gradient(180deg, ${t.btnTop} 0%, ${t.btnBot} 100%)`,
+        border: `1px solid ${t.btnBorder}`, boxShadow: p ? t.btnPressed : t.btnShadow,
+        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+        transform: p ? "translateY(1px)" : "translateY(0)", transition: "all 0.08s",
+        position: "relative", overflow: "hidden", flexShrink: 0,
+      }}>
+      <div style={{
+        position: "absolute", top: 0, left: "10%", right: "10%", height: "45%",
+        borderRadius: `${size * 0.3}px ${size * 0.3}px ${size}px ${size}px`,
+        background: `linear-gradient(180deg, ${t.btnHighlight} 0%, transparent 100%)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+function PlayBtn({ isPlaying, onClick, t }) {
+  const [p, setP] = useState(false);
+  return (
+    <div onClick={onClick}
+      onMouseDown={() => setP(true)} onMouseUp={() => setP(false)} onMouseLeave={() => setP(false)}
+      style={{
+        width: 56, height: 56, borderRadius: 16,
+        background: `linear-gradient(180deg, ${t.playTop} 0%, ${t.playBot} 100%)`,
+        border: `1px solid ${t.playBorder}`,
+        boxShadow: p ? t.btnPressed : t.playShadow,
+        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+        transform: p ? "translateY(1px)" : "translateY(0)", transition: "all 0.08s",
+        position: "relative", overflow: "hidden", flexShrink: 0,
+      }}>
+      <div style={{
+        position: "absolute", top: 0, left: "10%", right: "10%", height: "40%",
+        borderRadius: "16px 16px 30px 30px",
+        background: `linear-gradient(180deg, ${t.playHighlight} 0%, transparent 100%)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {isPlaying ? (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="#E8E6E2"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        ) : (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="#E8E6E2"><path d="M8 5v14l11-7z"/></svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function MementoDesktop() {
+  const [dark, setDark] = useState(true);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [needleX, setNeedleX] = useState(0);
+  const dialRef = useRef(null);
+  const t = dark ? D : L;
+  const station = STATIONS[activeIdx];
+  const stationPositions = [0.1, 0.3, 0.5, 0.7, 0.9];
+
+  useEffect(() => { setNeedleX(stationPositions[activeIdx]); }, [activeIdx]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === " ") { e.preventDefault(); setIsPlaying(p => !p); }
+      if (e.key >= "1" && e.key <= "5") setActiveIdx(Number(e.key) - 1);
+      if (e.key === "ArrowRight" || e.key === "n") setActiveIdx(p => Math.min(4, p + 1));
+      if (e.key === "ArrowLeft" || e.key === "p") setActiveIdx(p => Math.max(0, p - 1));
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const handleDialClick = (e) => {
+    if (!dialRef.current) return;
+    const rect = dialRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    let closest = 0, minDist = 1;
+    stationPositions.forEach((pos, i) => {
+      const d = Math.abs(x - pos);
+      if (d < minDist) { minDist = d; closest = i; }
+    });
+    setActiveIdx(closest);
+  };
+
+  return (
+    <div style={{
+      width: "100%", minHeight: "100vh",
+      background: t.bg, fontFamily: "'IBM Plex Mono', monospace",
+      display: "flex", flexDirection: "column", userSelect: "none", color: t.text,
+    }}>
+      <div style={{
+        position: "fixed", inset: 0, opacity: dark ? 0.08 : 0.15, pointerEvents: "none", mixBlendMode: "multiply",
+        backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E")`,
+      }} />
+
+      {/* Top bar */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "16px 32px", borderBottom: `1px solid ${t.border}`, position: "relative", zIndex: 2,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span style={{ fontSize: 11, letterSpacing: 4, fontWeight: 700, color: t.textMid }}>MEMENTO</span>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "4px 12px", borderRadius: 20,
+            background: t.surface, border: `1px solid ${t.border}`, cursor: "pointer",
+          }}>
+            <div style={{ width: 5, height: 5, borderRadius: "50%", background: ACCENT, animation: "pulse 2s infinite" }} />
+            <span style={{ fontSize: 9, color: t.textMid, letterSpacing: 0.5 }}>Daily brief ready — 12 min</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div onClick={() => setDark(!dark)} style={{
+            width: 20, height: 20, borderRadius: "50%", border: `1px solid ${t.border}`, background: t.surface,
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: dark ? "#E8E8E8" : "#2A2826" }} />
+          </div>
+          <HWBtn t={t} size={30}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={t.textDim} strokeWidth="1.5">
+              <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/>
+            </svg>
+          </HWBtn>
+        </div>
+      </div>
+
+      {/* Frequency dial */}
+      <div style={{ padding: "0 32px", borderBottom: `1px solid ${t.border}`, position: "relative", zIndex: 2 }}>
+        <div ref={dialRef} onClick={handleDialClick} style={{
+          position: "relative", height: 80, cursor: "pointer",
+          background: t.dialTrack, borderRadius: 8,
+          boxShadow: t.dialInset, margin: "16px 0",
+          border: `1px solid ${t.dialBorder}`, overflow: "hidden",
+        }}>
+          <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} preserveAspectRatio="none">
+            {Array.from({ length: 60 }).map((_, i) => {
+              const x = (i / 59) * 100;
+              const maj = i % 5 === 0;
+              return <line key={i} x1={`${x}%`} y1={maj ? "8%" : "16%"} x2={`${x}%`} y2={maj ? "32%" : "28%"}
+                stroke={maj ? (dark ? "#444" : t.textDim) : t.borderLight} strokeWidth={maj ? 1 : 0.5} />;
+            })}
+          </svg>
+
+          {STATIONS.map((s, i) => (
+            <span key={`f${i}`} style={{
+              position: "absolute", left: `${stationPositions[i] * 100}%`, top: 8,
+              transform: "translateX(-50%)", fontSize: 9,
+              color: i === activeIdx ? ACCENT : t.textDim, letterSpacing: 1,
+              fontWeight: i === activeIdx ? 700 : 400, transition: "color 0.3s",
+            }}>{s.freq}</span>
+          ))}
+
+          {STATIONS.map((s, i) => {
+            const isActive = i === activeIdx;
+            return (
+              <div key={i} onClick={(e) => { e.stopPropagation(); setActiveIdx(i); }}
+                style={{
+                  position: "absolute", left: `${stationPositions[i] * 100}%`, bottom: 8,
+                  transform: "translateX(-50%)",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer",
+                }}>
+                <div style={{
+                  width: isActive ? 24 : 18, height: isActive ? 24 : 18, borderRadius: "50%",
+                  background: t.dotBg || t.surface,
+                  border: `2px solid ${isActive ? ACCENT + "70" : t.dotOuter}`,
+                  boxShadow: t.inset,
+                  display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.3s",
+                }}>
+                  <div style={{
+                    width: isActive ? 8 : 6, height: isActive ? 8 : 6, borderRadius: "50%",
+                    background: isActive ? ACCENT : t.dotInner,
+                    boxShadow: isActive ? `0 0 8px ${ACCENT_GLOW}0.35)` : "none", transition: "all 0.3s",
+                  }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{
+                    fontSize: 8, letterSpacing: 1, textTransform: "uppercase",
+                    color: isActive ? t.text : t.textDim, fontWeight: isActive ? 500 : 400, transition: "color 0.3s",
+                  }}>{s.name}</span>
+                  {isActive && isPlaying && (
+                    <div style={{ width: 4, height: 4, borderRadius: "50%", background: ACCENT, boxShadow: `0 0 6px ${ACCENT_GLOW}0.5)`, animation: "pulse 1.5s infinite" }} />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Needle */}
+          <div style={{
+            position: "absolute", left: `${needleX * 100}%`, top: 0, bottom: 0,
+            transform: "translateX(-50%)",
+            transition: "left 0.5s cubic-bezier(0.34, 1.4, 0.64, 1)",
+            display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none",
+          }}>
+            <div style={{ width: 2, height: "30%", background: `linear-gradient(180deg, ${ACCENT} 0%, transparent 100%)` }} />
+            <div style={{
+              width: 7, height: 7, borderRadius: "50%", background: ACCENT,
+              boxShadow: `0 0 12px ${ACCENT_GLOW}0.45)`, marginTop: -2,
+            }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{ flex: 1, display: "flex", padding: 32, gap: 32, position: "relative", zIndex: 1 }}>
+        {/* Visual display */}
+        <div style={{
+          flex: 1, borderRadius: 16,
+          background: "#080808", border: `2px solid ${dark ? "#222" : "#181818"}`,
+          boxShadow: "inset 0 0 40px rgba(0,0,0,0.5)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          position: "relative", overflow: "hidden", minHeight: 340,
+        }}>
+          <div style={{
+            position: "absolute", inset: 0, pointerEvents: "none", opacity: 0.04,
+            background: "repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255,255,255,0.08) 2px, rgba(255,255,255,0.08) 3px)",
+          }} />
+          <div style={{ position: "absolute", top: 16, left: 20, fontSize: 9, color: ACCENT + "80", letterSpacing: 2, textTransform: "uppercase" }}>
+            {station.name}
+          </div>
+          <div style={{ position: "absolute", top: 16, right: 20, display: "flex", alignItems: "center", gap: 6 }}>
+            {isPlaying && <div style={{ width: 5, height: 5, borderRadius: "50%", background: ACCENT, boxShadow: `0 0 8px ${ACCENT_GLOW}0.5)`, animation: "pulse 1.5s infinite" }} />}
+            <span style={{ fontSize: 9, color: "#555", letterSpacing: 1.5 }}>{isPlaying ? "PLAYING" : "READY"}</span>
+          </div>
+          <Pixel pixels={station.pixel} color={ACCENT} size={14} glow />
+          <div style={{ position: "absolute", bottom: 20, left: 20, right: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+            <div style={{ fontSize: 10, color: ACCENT, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700 }}>
+              {activeIdx === 4 ? "EMPTY" : `STN ${activeIdx + 1}`}
+            </div>
+            <div style={{ fontSize: 8, color: "#444", letterSpacing: 1 }}>{station.type.toUpperCase()}</div>
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div style={{ width: 280, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div>
+            <div style={{ fontSize: 9, letterSpacing: 2, color: t.textDim, textTransform: "uppercase", marginBottom: 8 }}>Now playing</div>
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 28, color: t.text, lineHeight: 1.2, marginBottom: 6 }}>{station.title}</div>
+            <div style={{ fontSize: 10, color: t.textDim }}>{station.name} — {station.freq} MHz</div>
+          </div>
+
+          {/* Transport */}
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 14,
+            padding: "20px 24px", boxShadow: t.raised,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20 }}>
+              <HWBtn t={t} size={44}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMid} strokeWidth="1.5">
+                  <path d="M5 5v14l7-4 7 4V5a2 2 0 00-2-2H7a2 2 0 00-2 2z"/>
+                </svg>
+              </HWBtn>
+              <PlayBtn isPlaying={isPlaying} onClick={() => setIsPlaying(!isPlaying)} t={t} />
+              <HWBtn t={t} size={44}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMid} strokeWidth="1.5">
+                  <path d="M5 4l10 8-10 8V4z"/><line x1="19" y1="4" x2="19" y2="20"/>
+                </svg>
+              </HWBtn>
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 8 }}>
+              <span style={{ fontSize: 8, color: t.textDim, letterSpacing: 1.5, textTransform: "uppercase", width: 44, textAlign: "center" }}>Save</span>
+              <span style={{ fontSize: 8, color: t.textDim, letterSpacing: 1.5, textTransform: "uppercase", width: 56, textAlign: "center" }}>{isPlaying ? "Pause" : "Play"}</span>
+              <span style={{ fontSize: 8, color: t.textDim, letterSpacing: 1.5, textTransform: "uppercase", width: 44, textAlign: "center" }}>Skip</span>
+            </div>
+          </div>
+
+          {/* Configure */}
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 14,
+            padding: "16px 20px", boxShadow: t.raised,
+          }}>
+            <div style={{ fontSize: 8, letterSpacing: 2, color: t.textDim, textTransform: "uppercase", marginBottom: 10 }}>Configure station</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              {CONFIG[activeIdx].map((opt, i) => (
+                <div key={i} style={{
+                  padding: "5px 10px", borderRadius: 6, fontSize: 10,
+                  background: `linear-gradient(180deg, ${t.btnTop} 0%, ${t.btnBot} 100%)`,
+                  border: `1px solid ${t.btnBorder}`, boxShadow: t.btnShadow,
+                  color: t.textMid, cursor: "pointer", letterSpacing: 0.3,
+                }}
+                  onMouseDown={e => { e.target.style.transform = "translateY(1px)"; e.target.style.boxShadow = t.btnPressed; }}
+                  onMouseUp={e => { e.target.style.transform = ""; e.target.style.boxShadow = t.btnShadow; }}
+                  onMouseLeave={e => { e.target.style.transform = ""; e.target.style.boxShadow = t.btnShadow; }}
+                >{opt}</div>
+              ))}
+            </div>
+            <input type="text" placeholder="Or type a request..."
+              style={{
+                width: "100%", border: `1px solid ${t.border}`, borderRadius: 6,
+                padding: "7px 10px", fontSize: 10, background: t.surfaceDeep,
+                color: t.text, fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+              }} />
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "auto" }}>
+            {[["Space", "Play"], ["1-5", "Station"], ["B", "Save"], ["N", "Skip"]].map(([k, d]) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{
+                  padding: "2px 5px", borderRadius: 3, fontSize: 8, fontWeight: 500,
+                  background: t.surface, border: `1px solid ${t.border}`, color: t.textDim,
+                }}>{k}</span>
+                <span style={{ fontSize: 8, color: t.textDim }}>{d}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap');
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+      `}</style>
+    </div>
+  );
+}

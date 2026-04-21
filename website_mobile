@@ -1,0 +1,494 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+
+const STATIONS = [
+  { name: "Curiosity 1", title: "Mughal trade networks",
+    pixel: [
+      "000111000","010000100","100000010","100000010","100011010",
+      "100000010","100000010","010000100","000111000"
+    ]},
+  { name: "Curiosity 2", title: "Algorithms & belief",
+    pixel: [
+      "111111111","100000001","101111101","101000101","101010101",
+      "101000101","101111101","100000001","111111111"
+    ]},
+  { name: "Music", title: "Slow ambient drift",
+    pixel: [
+      "000010000","000111000","000101000","000101000","001010100",
+      "010101010","011111110","001111100","000111000"
+    ]},
+  { name: "Contemplative", title: "Fragments of meaning",
+    pixel: [
+      "001000000","011001000","001010000","001100000","001010000",
+      "011001000","001000100","000000010","000000001"
+    ]},
+  { name: "Open slot", title: "Your next curiosity",
+    pixel: [
+      "000010000","000010000","000010000","000010000","111111111",
+      "000010000","000010000","000010000","000010000"
+    ]},
+];
+
+const ANGLE_STEP = 36;
+const ACCENT = "#E8703A";
+const RED = "#E83A3A";
+const CONFIG = {
+  0: ["Go deeper", "Simplify", "Narrow focus", "Broaden out"],
+  1: ["Go deeper", "Simplify", "Narrow focus", "Broaden out"],
+  2: ["More upbeat", "Slower", "Different genre", "Something new"],
+  3: ["More poetry", "More philosophy", "Quieter", "Different tradition"],
+  4: ["Create station"],
+};
+
+const L = {
+  bg: "linear-gradient(180deg, #C8C5BE 0%, #C0BDB6 50%, #BAB7B0 100%)",
+  surface: "#D0CDC6", surfaceHi: "#D8D5CE",
+  border: "#AAA7A0", borderLight: "#B8B5AE",
+  text: "#2A2826", textMid: "#5A5856", textDim: "#8A8882",
+  dotOuter: "#9A9790", dotInner: "#6A6762", dotBg: "#BAB7B0",
+  inset: "inset 0 1px 3px rgba(0,0,0,0.1), inset 0 -1px 1px rgba(255,255,255,0.3)",
+  raised: "0 1px 2px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)",
+  ridge: "#B4B1AA", ridgeBorder: "#A0A09A", ridgeInner: "#C0BDB6",
+  ridgeShadow: "inset 0 2px 4px rgba(0,0,0,0.08), inset 0 -1px 2px rgba(255,255,255,0.25)",
+  btnTop: "#D8D5CE", btnBot: "#B8B5AE", btnBorder: "#A0A09A",
+  btnHighlight: "rgba(255,255,255,0.5)",
+  btnShadow: "0 2px 4px rgba(0,0,0,0.15), 0 1px 1px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.45)",
+  btnPressed: "0 0px 1px rgba(0,0,0,0.15), inset 0 1px 2px rgba(0,0,0,0.1)",
+  orangeTop: "#F08040", orangeBot: "#D06025", orangeBorder: "#C05520",
+  orangeShadow: "0 3px 6px rgba(232,112,58,0.35), 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.25)",
+};
+const D = {
+  bg: "linear-gradient(180deg, #1C1C1C 0%, #181818 50%, #141414 100%)",
+  surface: "#242424", surfaceHi: "#2C2C2C",
+  border: "#3A3A3A", borderLight: "#333333",
+  text: "#E8E6E2", textMid: "#999794", textDim: "#5A5856",
+  dotOuter: "#4A4A4A", dotInner: "#3A3A3A", dotBg: "#2A2A2A",
+  inset: "inset 0 1px 3px rgba(0,0,0,0.3), inset 0 -1px 1px rgba(255,255,255,0.04)",
+  raised: "0 1px 3px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(255,255,255,0.04)",
+  ridge: "#1E1E1E", ridgeBorder: "#333333", ridgeInner: "#222222",
+  ridgeShadow: "inset 0 2px 5px rgba(0,0,0,0.25), inset 0 -1px 2px rgba(255,255,255,0.03)",
+  btnTop: "#333333", btnBot: "#222222", btnBorder: "#404040",
+  btnHighlight: "rgba(255,255,255,0.08)",
+  btnShadow: "0 2px 4px rgba(0,0,0,0.4), 0 1px 1px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06)",
+  btnPressed: "0 0px 1px rgba(0,0,0,0.3), inset 0 1px 2px rgba(0,0,0,0.2)",
+  orangeTop: "#E87838", orangeBot: "#C05520", orangeBorder: "#A04818",
+  orangeShadow: "0 3px 6px rgba(232,112,58,0.25), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15)",
+};
+
+function Pixel({ pixels, color, size = 4 }) {
+  return (
+    <div style={{ display: "inline-flex", flexDirection: "column", gap: 0.8 }}>
+      {pixels.map((row, y) => (
+        <div key={y} style={{ display: "flex", gap: 0.8 }}>
+          {row.split("").map((p, x) => (
+            <div key={x} style={{ width: size, height: size, background: p === "1" ? color : "transparent", borderRadius: 0.5 }} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConcentricDot({ active, t, size = 30 }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      background: t.dotBg, border: `2px solid ${active ? ACCENT + "70" : t.dotOuter}`,
+      boxShadow: t.inset,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      transition: "border-color 0.3s",
+    }}>
+      <div style={{
+        width: size * 0.34, height: size * 0.34, borderRadius: "50%",
+        background: active ? ACCENT : t.dotInner,
+        boxShadow: active ? `0 0 8px ${ACCENT}50` : "none",
+        transition: "all 0.3s",
+      }} />
+    </div>
+  );
+}
+
+function HWButton({ children, t, onClick, size = 42 }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      style={{
+        width: size, height: size, borderRadius: size * 0.3,
+        background: `linear-gradient(180deg, ${t.btnTop} 0%, ${t.btnBot} 100%)`,
+        border: `1px solid ${t.btnBorder}`,
+        boxShadow: pressed ? t.btnPressed : t.btnShadow,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: "pointer",
+        transform: pressed ? "translateY(1px)" : "translateY(0)",
+        transition: "all 0.08s ease",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Top highlight bevel */}
+      <div style={{
+        position: "absolute", top: 0, left: "10%", right: "10%", height: "45%",
+        borderRadius: `${size * 0.3}px ${size * 0.3}px ${size}px ${size}px`,
+        background: `linear-gradient(180deg, ${t.btnHighlight} 0%, transparent 100%)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+function HWPlayButton({ isPlaying, onClick, t }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      style={{
+        width: 56, height: 56, borderRadius: 16,
+        background: `linear-gradient(180deg, ${t.orangeTop} 0%, ${t.orangeBot} 100%)`,
+        border: `1px solid ${t.orangeBorder}`,
+        boxShadow: pressed ? t.btnPressed : t.orangeShadow,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: "pointer",
+        transform: pressed ? "translateY(1px)" : "translateY(0)",
+        transition: "all 0.08s ease",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{
+        position: "absolute", top: 0, left: "10%", right: "10%", height: "40%",
+        borderRadius: "16px 16px 30px 30px",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.25) 0%, transparent 100%)",
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {isPlaying ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HWSmallButton({ children, t, onClick, active }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      style={{
+        width: 34, height: 34, borderRadius: 10,
+        background: `linear-gradient(180deg, ${t.btnTop} 0%, ${t.btnBot} 100%)`,
+        border: `1px solid ${active ? ACCENT + "70" : t.btnBorder}`,
+        boxShadow: pressed ? t.btnPressed : t.btnShadow,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: "pointer",
+        transform: pressed ? "translateY(1px)" : "translateY(0)",
+        transition: "all 0.08s ease",
+        position: "relative", overflow: "hidden",
+      }}
+    >
+      <div style={{
+        position: "absolute", top: 0, left: "12%", right: "12%", height: "42%",
+        borderRadius: "10px 10px 20px 20px",
+        background: `linear-gradient(180deg, ${t.btnHighlight} 0%, transparent 100%)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+export default function MementoArcTE() {
+  const [dark, setDark] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [showConfig, setShowConfig] = useState(false);
+  const touchStartY = useRef(null);
+  const containerRef = useRef(null);
+  const t = dark ? D : L;
+  const station = STATIONS[activeIdx];
+
+  const selectStation = useCallback((idx) => {
+    setActiveIdx(idx); setRotation(-idx * ANGLE_STEP); setShowConfig(false);
+  }, []);
+
+  const handleWheel = useCallback((e) => {
+    e.preventDefault();
+    setActiveIdx(prev => {
+      const next = Math.max(0, Math.min(4, prev + (e.deltaY > 0 ? 1 : -1)));
+      setRotation(-next * ANGLE_STEP); return next;
+    });
+    setShowConfig(false);
+  }, []);
+
+  const handleTouchStart = useCallback((e) => { touchStartY.current = e.touches[0].clientY; }, []);
+  const handleTouchEnd = useCallback((e) => {
+    if (touchStartY.current === null) return;
+    const dy = touchStartY.current - e.changedTouches[0].clientY;
+    if (Math.abs(dy) > 30) {
+      setActiveIdx(prev => {
+        const next = Math.max(0, Math.min(4, prev + (dy > 0 ? 1 : -1)));
+        setRotation(-next * ANGLE_STEP); return next;
+      });
+      setShowConfig(false);
+    }
+    touchStartY.current = null;
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
+
+  return (
+    <div ref={containerRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}
+      style={{
+        width: 375, height: 812, margin: "1rem auto", borderRadius: 40,
+        overflow: "hidden", position: "relative",
+        fontFamily: "'IBM Plex Mono', monospace", userSelect: "none",
+      }}>
+      <div style={{ position: "absolute", inset: 0, background: t.bg }} />
+      <div style={{
+        position: "absolute", inset: 0, opacity: dark ? 0.12 : 0.2, pointerEvents: "none", mixBlendMode: "multiply",
+        backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E")`,
+      }} />
+
+      <div style={{ position: "relative", zIndex: 1, padding: "58px 24px 28px", height: "100%", display: "flex", flexDirection: "column" }}>
+        {/* Status */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: t.textDim, letterSpacing: 1, marginBottom: 10 }}>
+          <span>9:41</span>
+          <span style={{ letterSpacing: 3, fontWeight: 700 }}>MEMENTO</span>
+          <div onClick={() => setDark(!dark)} style={{
+            width: 18, height: 18, borderRadius: "50%", border: `1px solid ${t.border}`, background: t.surface,
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: dark ? "#E8E8E8" : "#2A2826" }} />
+          </div>
+        </div>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 24, color: t.text, lineHeight: 1.15 }}>Good morning</div>
+            <div style={{ fontSize: 9, color: t.textDim, letterSpacing: 2, marginTop: 3, textTransform: "uppercase" }}>Wednesday, April 8</div>
+          </div>
+          <HWSmallButton t={t}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={t.textDim} strokeWidth="1.5">
+              <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/>
+            </svg>
+          </HWSmallButton>
+        </div>
+
+        {/* Brief */}
+        <div style={{
+          background: t.surfaceHi, border: `1px solid ${t.border}`, borderRadius: 10,
+          padding: "10px 12px", marginBottom: 16, boxShadow: t.raised, cursor: "pointer",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+            <div style={{ width: 5, height: 5, borderRadius: "50%", background: ACCENT, animation: "pulse 2s infinite" }} />
+            <span style={{ fontSize: 9, letterSpacing: 1.5, color: t.textDim, textTransform: "uppercase" }}>Daily brief</span>
+          </div>
+          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 14, color: t.text }}>Your morning brief</div>
+          <div style={{ fontSize: 10, color: t.textDim, marginTop: 1 }}>12 min — AI policy, media theory, Bangalore tech</div>
+        </div>
+
+        {/* Arc section */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", position: "relative", overflow: "hidden" }}>
+          <div style={{
+            position: "absolute", left: -230, top: "50%",
+            width: 460, height: 460, marginTop: -230,
+            transition: "transform 0.5s cubic-bezier(0.34, 1.25, 0.64, 1)",
+            transform: `rotate(${rotation}deg)`,
+          }}>
+            {/* Ridge track */}
+            <div style={{
+              position: "absolute", top: 20, left: 20, width: 420, height: 420, borderRadius: "50%",
+              background: t.ridge, border: `1.5px solid ${t.ridgeBorder}`, boxShadow: t.ridgeShadow,
+            }}>
+              <div style={{
+                position: "absolute", top: 28, left: 28,
+                width: 420 - 56, height: 420 - 56, borderRadius: "50%",
+                background: t.ridgeInner, border: `1px solid ${t.ridgeBorder}`,
+              }} />
+            </div>
+
+            <svg width="460" height="460" viewBox="0 0 460 460" style={{ position: "absolute" }}>
+              <line x1="230" y1="18" x2="230" y2="48" stroke={t.borderLight} strokeWidth="0.5" />
+              <line x1="230" y1="412" x2="230" y2="442" stroke={t.borderLight} strokeWidth="0.5" />
+              <line x1="18" y1="230" x2="48" y2="230" stroke={t.borderLight} strokeWidth="0.5" />
+              <line x1="412" y1="230" x2="442" y2="230" stroke={t.borderLight} strokeWidth="0.5" />
+              {Array.from({ length: 48 }).map((_, i) => {
+                const a = (i * 7.5 - 90) * Math.PI / 180;
+                const maj = i % 6 === 0;
+                return <line key={i}
+                  x1={230 + (maj ? 195 : 200) * Math.cos(a)} y1={230 + (maj ? 195 : 200) * Math.sin(a)}
+                  x2={230 + 208 * Math.cos(a)} y2={230 + 208 * Math.sin(a)}
+                  stroke={maj ? t.textDim : t.dotOuter} strokeWidth={maj ? 1.2 : 0.5} />;
+              })}
+            </svg>
+
+            {STATIONS.map((s, i) => {
+              const angle = (i * ANGLE_STEP) * Math.PI / 180;
+              const x = 230 + 200 * Math.cos(angle - Math.PI / 2);
+              const y = 230 + 200 * Math.sin(angle - Math.PI / 2);
+              return (
+                <div key={i} onClick={() => selectStation(i)} style={{
+                  position: "absolute", left: x - 15, top: y - 15, cursor: "pointer",
+                  transform: `rotate(${-rotation}deg)`,
+                  transition: "transform 0.5s cubic-bezier(0.34, 1.25, 0.64, 1)",
+                }}>
+                  <ConcentricDot active={i === activeIdx} t={t} />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Indicator */}
+          <div style={{
+            position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)",
+            width: 18, height: 3, borderRadius: 1, background: ACCENT,
+          }} />
+
+          {/* Info panel */}
+          <div style={{ position: "relative", marginLeft: 244, zIndex: 2 }}>
+            {/* OLED screen */}
+            <div style={{
+              width: 112, height: 76, borderRadius: 7,
+              background: "#080808", border: `2px solid ${dark ? "#2A2A2A" : "#181818"}`,
+              padding: "8px 10px", marginBottom: 14,
+              display: "flex", alignItems: "center", gap: 10,
+              boxShadow: "inset 0 0 12px rgba(0,0,0,0.7)",
+            }}>
+              <Pixel pixels={station.pixel} color={ACCENT} size={5.5} />
+              <div>
+                <div style={{ fontSize: 9, color: ACCENT, letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700 }}>
+                  {activeIdx === 4 ? "EMPTY" : `STN ${activeIdx + 1}`}
+                </div>
+                <div style={{ fontSize: 7, color: "#555", letterSpacing: 0.5, marginTop: 3 }}>
+                  {isPlaying ? "PLAYING" : "READY"}
+                </div>
+              </div>
+            </div>
+
+            {/* Station name + red dot */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              {isPlaying && (
+                <div style={{
+                  width: 6, height: 6, borderRadius: "50%", background: RED,
+                  boxShadow: `0 0 6px ${RED}60`, animation: "pulse 1.5s infinite",
+                }} />
+              )}
+              <span style={{ fontSize: 9, letterSpacing: 1.5, color: t.textDim, textTransform: "uppercase" }}>{station.name}</span>
+            </div>
+            <div style={{
+              fontFamily: "'Instrument Serif', serif",
+              fontSize: 20, color: t.text, lineHeight: 1.25, maxWidth: 155,
+            }}>{station.title}</div>
+
+            {/* Station list */}
+            <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 7 }}>
+              {STATIONS.map((s, i) => (
+                <div key={i} onClick={() => selectStation(i)} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  opacity: i === activeIdx ? 1 : 0.3, cursor: "pointer", transition: "opacity 0.3s",
+                }}>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: "50%",
+                    border: `1.5px solid ${i === activeIdx ? ACCENT : t.dotOuter}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <div style={{ width: 3.5, height: 3.5, borderRadius: "50%", background: i === activeIdx ? ACCENT : t.dotInner }} />
+                  </div>
+                  <span style={{ fontSize: 9, color: t.textMid, letterSpacing: 0.5 }}>{s.name}</span>
+                  {i === activeIdx && isPlaying && (
+                    <div style={{ width: 4, height: 4, borderRadius: "50%", background: RED, animation: "pulse 1.5s infinite", marginLeft: -2 }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Controls - tactile hardware buttons */}
+        <div style={{ position: "relative", paddingTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18 }}>
+            <HWButton t={t}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMid} strokeWidth="1.5">
+                <path d="M5 5v14l7-4 7 4V5a2 2 0 00-2-2H7a2 2 0 00-2 2z"/>
+              </svg>
+            </HWButton>
+
+            <HWPlayButton isPlaying={isPlaying} onClick={() => setIsPlaying(!isPlaying)} t={t} />
+
+            <HWButton t={t}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMid} strokeWidth="1.5">
+                <path d="M5 4l10 8-10 8V4z"/><line x1="19" y1="4" x2="19" y2="20"/>
+              </svg>
+            </HWButton>
+          </div>
+
+          {/* Configure far right */}
+          <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)" }}>
+            <div style={{ position: "relative" }}>
+              <HWSmallButton t={t} onClick={() => setShowConfig(!showConfig)} active={showConfig}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill={showConfig ? ACCENT : t.textMid}>
+                  <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+                </svg>
+              </HWSmallButton>
+              {showConfig && (
+                <div style={{
+                  position: "absolute", bottom: "100%", right: 0, marginBottom: 8,
+                  background: dark ? "#1E1E1E" : "#F0EDE8",
+                  border: `1px solid ${t.border}`, borderRadius: 8,
+                  padding: 3, width: 170, boxShadow: "0 6px 20px rgba(0,0,0,0.15)", zIndex: 20,
+                }}>
+                  <div style={{ padding: "3px 8px", fontSize: 8, color: t.textDim, letterSpacing: 1.5, textTransform: "uppercase" }}>Configure station</div>
+                  {CONFIG[activeIdx].map((opt, i) => (
+                    <div key={i} onClick={(e) => { e.stopPropagation(); setShowConfig(false); }} style={{
+                      padding: "6px 8px", fontSize: 10, color: t.text, borderRadius: 5, cursor: "pointer",
+                    }}
+                      onMouseEnter={e => e.target.style.background = dark ? "#2A2A2A" : "#E6E3DE"}
+                      onMouseLeave={e => e.target.style.background = "transparent"}
+                    >{opt}</div>
+                  ))}
+                  <div style={{ borderTop: `1px solid ${t.border}`, margin: "2px 0" }} />
+                  <div style={{ padding: "3px 5px" }}>
+                    <input type="text" placeholder="Or type..." onClick={e => e.stopPropagation()} style={{
+                      width: "100%", border: `1px solid ${t.border}`, borderRadius: 4,
+                      padding: "4px 6px", fontSize: 9, background: dark ? "#141414" : "#fff",
+                      color: t.text, fontFamily: "inherit", outline: "none",
+                    }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 10, fontSize: 8, color: t.textDim, letterSpacing: 1.5, textTransform: "uppercase" }}>
+          Scroll to switch stations
+        </div>
+        <div style={{ width: 134, height: 4, borderRadius: 2, background: t.border, margin: "8px auto 0" }} />
+      </div>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap');
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+      `}</style>
+    </div>
+  );
+}

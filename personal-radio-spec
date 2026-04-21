@@ -1,0 +1,232 @@
+
+MEMENTO
+Personal Radio
+
+Product Experience Specification
+v1.0  —  April 2026
+
+Less noise. More signal.
+
+1. Product Vision
+Memento Personal Radio is a personal, continuous, adaptive listening environment. It combines the ambient, zero-decision quality of traditional radio with content that is generated for and shaped around a single listener.
+The core experience: you open the app, you see a dial, you turn it to a station, and it plays. No browsing. No choosing from a catalogue. No infinite scroll. A voice is already talking about something you care about, or music is already playing something that fits your mood. You drift in and out. You listen while you cook, commute, or fall asleep.
+Over time, the stations learn. They adapt to your interests, your rhythms, your depth. They remember where you left off. They never repeat. And they wait for you when you are away.
+
+
+2. Core Principles
+2.1 Audio-First, Screen-Second
+Audio is the only medium that does not compete with the body. Eyes and hands remain free. The screen exists only as a minimal control surface: the dial, the bookmark button, the occasional steering input. If you never look at the screen after tapping play, the product has succeeded.
+2.2 Subtractive, Not Additive
+Memento replaces the morning doomscroll, the aimless podcast browse, the guilty screen time. It does not add another app to check. If it creates a new obligation, it has failed.
+2.3 Push by Default, Pull by Choice
+Content arrives. The morning brief is ready at 7am. The stations are pre-loaded. The user does not need to seek, configure, or decide. But when they want to steer, they can — conversationally, not through settings pages.
+2.4 Agency Without Friction
+The user always has control — they can skip, steer, create, retire. But they never have to exercise that control. The system works well on autopilot. Control is available, not required.
+
+
+3. Information Architecture
+3.1 The Daily Brief
+The daily brief is not a station. It is a discrete delivery — a finite audio segment that arrives each morning, covers what matters to the user today, and ends. It sits above the stations as a card or notification: “Your brief is ready.” The user taps, listens for 10–15 minutes, and it is done.
+The brief is personalized to the user’s chosen topics (industry news, specific interests, local context). It does not loop or generate continuous content. It is today’s brief and only today’s.
+Design Note
+The daily brief exists outside the station paradigm because it has a natural end. Stations are continuous; the brief is finite. Conflating the two creates the problem of a “brief station” that has nothing to say at 3pm.
+
+
+3.2 The Stations
+The user has five stations, accessed via a dial interface. Each station has a distinct purpose, personality, and behaviour.
+
+#
+Station Type
+Content
+Behaviour
+1
+Curiosity Station
+Structured, voice-driven exploration of a topic the user chose
+Has memory and continuity. Resumes where user left off. Adapts depth and focus over time.
+2
+Curiosity Station
+Second interest or system-suggested wildcard
+Same as Station 1. Independent memory and topic space.
+3
+Ambient Music
+No voice. AI-curated or AI-generated music matching user taste
+Stateless. Always fresh. Learns sonic preferences over time. No narrative to resume.
+4
+Contemplative Stream
+Ambient sound with sparse fragments: poetry, philosophy, reflections
+Stateless. Mostly texture with occasional meaning. Adapts lineage (Sufi, Stoic, etc.) over time.
+5
+Open Slot
+Empty on day one. Available when the user is ready to add a new interest
+Created by user input when ready. No pressure to fill.
+
+
+3.3 Two Station Categories
+Structured stations (Curiosity 1 & 2) have memory and wait for the user. Content is segmented. The station resumes from where the user left off, with a brief contextual re-entry. These stations respect the user’s entry point — each segment begins cleanly, without requiring knowledge of prior segments.
+
+Flow stations (Ambient Music, Contemplative Stream) are stateless and always fresh. There is no narrative thread to resume. The user enters a mood, not a story. These stations feel “already in progress” — the user tunes into something ongoing.
+
+
+4. User Journey
+4.1 First Open
+The user opens the app for the first time. They see a warm, inviting text field: “What are you curious about?”
+Below the text field, a set of 8–10 tappable topic tiles serves as a fallback: History, Science, Music, Technology, Philosophy, How the World Works, etc. These are visually quieter than the text input — a helping hand, not the primary path.
+Design Hierarchy
+Free text input is the primary path (captures genuine curiosity in the user’s own words). Tappable topics are the fallback (for users who prefer to browse rather than type). Both paths produce the same result: the system generates the initial stations and begins playing audio immediately.
+
+
+From the single input, the system generates the user’s first stations. Audio begins playing within seconds. There is no confirmation screen, no “here are your stations, would you like to customize?” The user gave a seed; the system is already talking.
+4.2 Daily Use — The Core Loop
+The home screen is the dial. The stations are the entire interface. Each station has a visual identity — a colour, a texture, a name — that communicates mood without words. The user turns the dial to a station. It plays.
+
+Key properties of the core loop:
+Instant start. Content is pre-generated. No loading, no “generating your content.” Audio is ready on tap.
+Static between stations. As the user turns the dial, they hear brief sonic hints of each station — a half-second of ambient music, a murmur of a voice — with static between. Landing on a station, the audio settles and clarifies.
+Instant switching. No confirmation dialogs. Tap another station, it starts. The station you left continues internally — when you return, structured stations resume; flow stations are fresh.
+Minimal screen. While listening: the station’s visual identity, a single line of text showing the current topic or track, and the bookmark button. Nothing else.
+4.3 The Retro Dial
+The dial interface uses a retro radio aesthetic. This is a deliberate emotional choice. A physical radio dial carries associations of warmth, analog imperfection, something your parents had in the kitchen. It communicates: “This is not another tech product.” The interaction should feel tactile — a turn, a landing, a settling-in.
+4.4 Return After Absence
+The user has not opened the app in several days. Nothing happened while they were gone. The stream exists for them alone; there is no broadcast running in their absence.
+
+Structured stations resume. The curiosity station picks up where the user left off, with a brief contextual re-entry: “So, we were talking about how Mughal trade networks connected the subcontinent to Central Asia...” Then it continues.
+Flow stations are fresh. Ambient music and the contemplative stream are always new. No gap to acknowledge.
+The daily brief is today’s. Not three stacked briefs from missed days. Just today. Fresh start.
+Key Insight
+This is not a broadcast. Nothing plays when the user is not listening. Structured stations wait. This patience is part of what makes the product feel personal — no podcast drops whether you finished the last one or not. Memento has nowhere else to be.
+
+
+
+5. Steering — How the User Shapes Their Experience
+Steering is the mechanism by which users exert control over their stations. The design challenge: make control available without making it visible at all times. The principle is that steering should feel like talking to a DJ, not configuring software.
+5.1 Intent Classification
+User intents cluster into four categories, each requiring a different interaction pattern.
+
+Category A: In-the-Moment Reactions
+Interaction pattern: Gesture controls — buttons, swipes, taps. Zero thought required.
+Skip — Move to the next segment or track. No opinion on what comes next.
+Bookmark — Save this moment. One tap. The stream continues.
+Pause / Resume — Hold my place on a structured station.
+More like this — Signal approval. The stream leans into the current direction.
+Category B: Adjusting Station Direction
+Interaction pattern: Contextual dropdown options + free text input.
+When the user wants to shift what a station covers without leaving it, a dropdown reveals preset options relevant to the station type. Below the presets, a free text field allows precise steering.
+
+Station Type
+Dropdown Options
+Curiosity Stations
+Go deeper  •  Simplify  •  Narrow focus  •  Broaden out  •  Change tone
+Ambient Music
+More upbeat  •  Slower  •  Something different  •  Change genre
+Contemplative Stream
+More poetry  •  More philosophy  •  Quieter  •  Different tradition
+
+
+Free text examples: “Focus on Mughal period economics.” “Stop covering military history.” “I already understand the basics, go deeper.”
+Category C: Structural Changes
+Interaction pattern: Deliberate actions — separate CTAs, infrequent, can afford more friction.
+Create a new station — Same flow as onboarding: text input with topic fallbacks.
+Retire a station — Long-press or dedicated action. Frees the slot.
+Rename / reframe — The station started as “Indian history” but evolved; acknowledge the drift.
+Category D: Daily Brief Controls
+Interaction pattern: Simple list management.
+Add or remove topics from the brief.
+Change delivery time.
+Adjust length (shorter / longer).
+5.2 Implicit Steering
+Beyond explicit actions, the system learns from behaviour. Segments skipped, segments completed, time of day each station is used, how long the user stays, which bookmarks are made. These signals continuously refine the stations without requiring any user input.
+
+
+6. Bookmarks
+A bookmark is a discrete piece of content pulled out of the stream. On a structured station, it is a specific segment (the one about Mughal trade networks). On the ambient music station, it is a track. On the contemplative stream, it is a particular quote or fragment.
+One tap while listening. The stream continues. The bookmark is saved.
+6.1 The Bookmark Library
+Bookmarks live in a simple, chronological library. Not organized by station — organized by time. A timeline of moments that caught the user’s attention.
+“Mughal Trade Networks — Indian History station — April 3”
+“Marcus Aurelius on impermanence — Contemplative — April 5”
+“Saved ambient track — Music — April 7”
+The user taps any bookmark to replay it. Over time, the bookmark library becomes an unintentional self-portrait — a collection the user did not deliberately curate, but which reflects what resonated.
+6.2 Bookmarks as Signal
+Bookmarked content feeds back into the system’s understanding of what the user cares about. A bookmarked segment on Mughal economics is a stronger signal than simply listening to it. This informs future content generation without requiring explicit feedback.
+
+
+7. History & Progress
+Users need a sense of accumulation — “What have I gained from my time here?” This is answered through two layers, inspired by Letterboxd’s diary model and Strava’s heatmap.
+7.1 The Listening Diary
+The default view. A chronological, day-by-day record of what the user listened to. Simple, low-effort, always growing.
+Monday — 25 min Indian History (Mughal economics), 40 min ambient music, morning brief.
+Tuesday — 15 min brief, 1 hr ambient music, 20 min contemplative stream.
+This is a journal the user did not have to write. It is always available, but never pushed. The user glances at it when they want to — daily, weekly, or rarely.
+7.2 The Exploration Visualization
+An optional, higher-level view available when the user wants to zoom out. This is not a pre-drawn map with empty nodes to fill — it is a picture that emerges purely from what the user has already covered.
+Only shows explored territory. New nodes appear as the user encounters topics, not before. No implied completeness. No finish line.
+Density communicates depth. Areas where the user spent more time appear denser. Edges are sparser. The shape reflects attention, not a curriculum.
+Grows at the pace of listening. After a week, perhaps twelve nodes. After a month, forty. Always proportional to the user’s investment.
+Doubles as navigation. Tapping a node lets the user say “go back to this” or “go deeper here.” History becomes a steering mechanism.
+Why Not Progress Bars or Metrics?
+Episode counts imply a syllabus with a completion state. Minutes-listened feels like a fitness tracker. Streaks create guilt. The visualization avoids all of these by showing the shape of curiosity rather than measuring it. There is no number going up — only a territory filling in.
+
+
+
+8. Evolution Over Time
+8.1 Day-to-Day Adaptation
+The system observes skips, completions, and bookmarks. Tomorrow’s content reflects today’s behaviour. A user who skips military history and bookmarks economics segments will receive more economics, less military. No explicit input required.
+8.2 Week-to-Week Pattern Recognition
+Broader patterns emerge: which stations are used at which times, how long sessions last, weekend versus weekday behaviour. The system optimizes content length to match observed habits (e.g., commute-length segments for the station used during commutes).
+8.3 Month-to-Month Drift
+Over weeks, interests naturally drift. The “Indian history” station may quietly become an “economic history” station based on what the user engaged with. The system may surface this as a natural acknowledgment within the content, and may suggest spinning off a new station based on the deeper curiosity it has detected.
+8.4 The Surprise Counterweight
+To prevent filter-bubble narrowing, approximately one in five segments is deliberately adjacent — not random, but unexpected. An Indian history station might introduce Ottoman economics or Chinese trade routes. The ambient music station occasionally surfaces unfamiliar genres sharing sonic qualities with what the user likes. The system earns trust through accuracy, then spends it on occasional surprise.
+
+
+9. Design Language
+Retro radio aesthetic. The dial, the static between stations, the warm visual identity. This signals “not another tech product” and creates an emotional frame of warmth and nostalgia.
+Minimal screen while listening. Station visual identity, one line of current content, bookmark button. The screen is something you glance at, not stare at.
+Consistent input pattern. Whenever the user needs to express intent: tappable options first, free text underneath. Same pattern at onboarding, while steering, when creating stations.
+No metrics on the home screen. No streak counters, no minutes listened, no badges. The home screen is the dial. The diary and visualization live deeper, available but never pushed.
+
+
+10. What This Is Not
+Not a podcast app. Podcasts are discrete episodes you choose. Memento is a continuous stream you enter.
+Not a music streaming service. Music is one station among five. The product is about the full spectrum of audio experience: information, music, contemplation, briefing.
+Not a meditation app. The contemplative stream is not guided breathing or mindfulness exercises. It is ambient presence with fragments of meaning.
+Not a news app. The daily brief covers the user’s interests, but the product is not organized around current events.
+Not a learning management system. There are no courses, no quizzes, no certifications. The curiosity stations explore; they do not teach to a test.
+
+
+11. Future Feature: Bookmark Import as Personalization
+This is an additional specification for a future feature, not part of the core launch experience.
+
+11.1 The Insight
+A user’s saved bookmarks — from Pocket, Raindrop, browser bookmarks, YouTube watch-later lists, Instapaper — are the most honest record of their curiosity. Not what they told people they’re interested in, but what they quietly saved for later. Most of which they never went back to.
+The gap between bookmarking and consuming is exactly the space Memento is designed to fill. Bookmark import lets the system understand the full landscape of a user’s curiosity from day one, rather than building it slowly from a single text input.
+11.2 How It Works
+The user connects a bookmarking service or imports a browser export. The system scans the saved items — not to replay that content as audio, but to extract the shape of the user’s interests. Fourteen saved articles about urban design, eight about Indian history, a cluster of videos about jazz theory. From these signals, the system generates stations that already feel informed.
+This is a personalization input, not a content pipeline. The bookmarks tell the system what topics to cover, at what depth, and with what emphasis. The actual audio content is still generated fresh by the system.
+11.3 Placement in the User Journey
+Bookmark import should not be part of first-open onboarding. The primary path remains: type your curiosity, get stations, start listening. Import is a second-session or settings-level action.
+Possible triggers:
+A quiet nudge after the first full day of use: “Want your stations to know you better? Import your bookmarks.”
+An option in the station settings: “Refine this station with your saved reading.”
+A permanent option in profile/settings, available but never pushed.
+11.4 Supported Sources
+Pocket, Raindrop, Instapaper (via API integration)
+Browser bookmark export (HTML file)
+YouTube watch-later / liked videos
+Kindle highlights and notes (if accessible)
+Read-later lists from RSS readers (Feedly, etc.)
+11.5 The Emotional Pitch
+Bookmark import addresses a specific guilt that many users carry: the growing list of things they saved but never returned to. Memento can reframe this positively: “You saved all this because it mattered to you. We’ll turn it into something you can actually listen to while you live your life.”
+The bookmarks are not wasted. They become the seed data for a listening experience shaped around the user’s genuine — if sometimes forgotten — curiosities.
+
+
+12. Open Questions for Future Exploration
+How many stations should the maximum be? Is five the right ceiling, or should users be able to add more over time?
+Should the contemplative stream allow user-contributed content (their own quotes, their own reflections) alongside AI-curated material?
+What is the right model for the daily brief — purely AI-generated, or aggregating from real sources with AI synthesis?
+How should the product handle multiple users in a household (e.g., shared listening on a speaker)?
+What is the monetization model? Subscription feels most aligned with the product’s values (no ads, no attention extraction).
+How does voice selection work? Should users choose a voice for each station, or should the system assign voices based on station personality?
+Social features: should users ever be able to share a station configuration, a bookmark collection, or a listening diary?
+
+This document captures the product experience as designed through collaborative exploration. Technical implementation, architecture, and infrastructure requirements are deferred to a separate specification.
